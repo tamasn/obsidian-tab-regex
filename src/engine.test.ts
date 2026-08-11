@@ -1,22 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyRules, basenameOf, seedFromPath } from "./engine";
-import type { Rule } from "./rules";
-
-let ruleCounter = 0;
-
-function makeRule(overrides: Partial<Rule> = {}): Rule {
-	ruleCounter += 1;
-	return {
-		id: `rule-${ruleCounter}`,
-		name: undefined,
-		pattern: "a",
-		replacement: "b",
-		global: false,
-		ignoreCase: false,
-		enabled: true,
-		...overrides,
-	};
-}
+import { makeRule } from "./test-fixtures";
 
 describe("seedFromPath", () => {
 	it("strips the final extension from a vault-root-relative path", () => {
@@ -127,7 +111,7 @@ describe("applyRules — flags", () => {
 		expect(globalResult).not.toBe(firstOnlyResult);
 	});
 
-	it("does not leak regex lastIndex across calls: repeated invocation with the same global rule is stable", () => {
+	it("applyRules is idempotent call-to-call: repeated invocation with the same global rule object is stable", () => {
 		const rule = makeRule({ pattern: "a", replacement: "X", global: true });
 		const first = applyRules("banana.md", [rule]);
 		const second = applyRules("banana.md", [rule]);

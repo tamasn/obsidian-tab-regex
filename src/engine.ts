@@ -1,4 +1,4 @@
-import type { Rule } from "./rules";
+import { flagsOf, type Rule } from "./rules";
 
 export function seedFromPath(vaultPath: string): string {
 	const lastSlash = vaultPath.lastIndexOf("/");
@@ -17,10 +17,6 @@ export function basenameOf(vaultPath: string): string {
 	return lastSlash === -1 ? seeded : seeded.slice(lastSlash + 1);
 }
 
-function flagsOf(rule: Rule): string {
-	return `${rule.global ? "g" : ""}${rule.ignoreCase ? "i" : ""}`;
-}
-
 export function applyRules(vaultPath: string, rules: Rule[]): string {
 	let acc = seedFromPath(vaultPath);
 	let matched = false;
@@ -28,16 +24,16 @@ export function applyRules(vaultPath: string, rules: Rule[]): string {
 	for (const rule of rules) {
 		if (!rule.enabled) continue;
 
-		// Fresh RegExp instances per rule per call: a `g`-flagged RegExp is stateful
-		// (lastIndex), so reusing one across calls or across test/replace would leak
-		// state and either corrupt the replace or skip matches on the next call.
-		const flags = flagsOf(rule);
-		const testRegex = new RegExp(rule.pattern, flags);
-		if (!testRegex.test(acc)) continue;
+		// A single compiled RegExp is reused for both test() and replace() below.
+		// This is safe even when `global` is set: RegExp.prototype[Symbol.replace]
+		// resets lastIndex to 0 before it starts matching whenever the regex is
+		// global, so test()'s lastIndex advancement never leaks into replace() (or
+		// into the next call, since a fresh RegExp is compiled per rule per call).
+		const regex = new RegExp(rule.pattern, flagsOf(rule));
+		if (!regex.test(acc)) continue;
 
 		matched = true;
-		const replaceRegex = new RegExp(rule.pattern, flags);
-		acc = acc.replace(replaceRegex, rule.replacement);
+		acc = acc.replace(regex, rule.replacement);
 	}
 
 	if (!matched || acc === "") {

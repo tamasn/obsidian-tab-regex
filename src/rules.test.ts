@@ -1,23 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	DEFAULT_SETTINGS,
+	bumpRevision,
+	createDefaultSettings,
+	mergeSettings,
 	validateRule,
-	type Rule,
 	type TabTitleRulesSettings,
 } from "./rules";
-
-function makeRule(overrides: Partial<Rule> = {}): Rule {
-	return {
-		id: "rule-1",
-		name: undefined,
-		pattern: "foo",
-		replacement: "bar",
-		global: false,
-		ignoreCase: false,
-		enabled: true,
-		...overrides,
-	};
-}
+import { makeRule } from "./test-fixtures";
 
 describe("DEFAULT_SETTINGS", () => {
 	it("is an empty rule list at revision 0", () => {
@@ -42,22 +32,93 @@ describe("validateRule", () => {
 		}
 	});
 
-	it("compiles the pattern with the rule's own global/ignoreCase flags (valid case)", () => {
-		// A pattern that is valid regardless of flags, but exercises flag-aware compilation.
-		const result = validateRule(
-			makeRule({ pattern: "FOO", global: true, ignoreCase: true })
-		);
-		expect(result).toEqual({ ok: true });
+});
+
+describe("createDefaultSettings", () => {
+	it("returns a fresh rules array on every call", () => {
+		const a = createDefaultSettings();
+		const b = createDefaultSettings();
+		expect(a.rules).not.toBe(b.rules);
+		expect(a).toEqual({ rules: [], rulesRevision: 0 });
 	});
 
-	it("still reports the same invalid pattern as an error under different flag combinations", () => {
-		const withGlobal = validateRule(
-			makeRule({ pattern: "([unclosed", global: true, ignoreCase: false })
-		);
-		const withIgnoreCase = validateRule(
-			makeRule({ pattern: "([unclosed", global: false, ignoreCase: true })
-		);
-		expect(withGlobal.ok).toBe(false);
-		expect(withIgnoreCase.ok).toBe(false);
+	it("mutating one caller's rules array does not affect another caller's", () => {
+		const a = createDefaultSettings();
+		a.rules.push(makeRule());
+		const b = createDefaultSettings();
+		expect(b.rules).toEqual([]);
+	});
+});
+
+describe("mergeSettings", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("returns fresh default settings for null (first-run loadData)", () => {
+		const result = mergeSettings(null);
+		expect(result).toEqual({ rules: [], rulesRevision: 0 });
+	});
+
+	it("returned rules array is not aliased to DEFAULT_SETTINGS.rules", () => {
+		const result = mergeSettings(null);
+		expect(result.rules).not.toBe(DEFAULT_SETTINGS.rules);
+		expect(() => result.rules.push(makeRule())).not.toThrow();
+	});
+
+	it("merges a valid persisted rulesRevision and rules array", () => {
+		const rule = makeRule({ pattern: "^ok$" });
+		const result = mergeSettings({ rules: [rule], rulesRevision: 7 });
+		expect(result.rulesRevision).toBe(7);
+		expect(result.rules).toEqual([rule]);
+	});
+
+	it("ignores a non-object payload and falls back to defaults", () => {
+		expect(mergeSettings(undefined)).toEqual({ rules: [], rulesRevision: 0 });
+		expect(mergeSettings("garbage")).toEqual({ rules: [], rulesRevision: 0 });
+		expect(mergeSettings(42)).toEqual({ rules: [], rulesRevision: 0 });
+	});
+
+	it("forces an enabled rule with an invalid pattern to enabled: false, keeping the rest of the data", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const broken = makeRule({ pattern: "([unclosed", enabled: true });
+		const result = mergeSettings({ rules: [broken], rulesRevision: 0 });
+		expect(result.rules).toHaveLength(1);
+		expect(result.rules[0]).toEqual({ ...broken, enabled: false });
+		expect(warn).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not drop the invalid rule from the array", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const broken = makeRule({ pattern: "([unclosed", enabled: true });
+		const healthy = makeRule({ pattern: "^ok$", enabled: true });
+		const result = mergeSettings({ rules: [broken, healthy] });
+		expect(result.rules).toHaveLength(2);
+		expect(result.rules[0].enabled).toBe(false);
+		expect(result.rules[1].enabled).toBe(true);
+		warn.mockRestore();
+	});
+
+	it("leaves an already-disabled invalid rule untouched (no redundant warning)", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const broken = makeRule({ pattern: "([unclosed", enabled: false });
+		const result = mergeSettings({ rules: [broken] });
+		expect(result.rules[0]).toEqual(broken);
+		expect(warn).not.toHaveBeenCalled();
+	});
+});
+
+describe("bumpRevision", () => {
+	it("returns a new object with rulesRevision incremented by one", () => {
+		const settings = createDefaultSettings();
+		const bumped = bumpRevision(settings);
+		expect(bumped.rulesRevision).toBe(1);
+		expect(bumped).not.toBe(settings);
+	});
+
+	it("does not mutate the input settings object", () => {
+		const settings: TabTitleRulesSettings = { rules: [], rulesRevision: 3 };
+		bumpRevision(settings);
+		expect(settings.rulesRevision).toBe(3);
 	});
 });

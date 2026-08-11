@@ -1,8 +1,13 @@
 import { Plugin } from "obsidian";
-import { DEFAULT_SETTINGS, type TabTitleRulesSettings } from "./rules";
+import {
+	bumpRevision,
+	createDefaultSettings,
+	mergeSettings,
+	type TabTitleRulesSettings,
+} from "./rules";
 
 export default class TabTitleRulesPlugin extends Plugin {
-	settings: TabTitleRulesSettings = DEFAULT_SETTINGS;
+	settings: TabTitleRulesSettings = createDefaultSettings();
 
 	async onload() {
 		await this.loadSettings();
@@ -14,11 +19,11 @@ export default class TabTitleRulesPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = mergeSettings(await this.loadData());
 	}
 
 	async saveSettings() {
-		this.settings.rulesRevision += 1;
+		this.settings = bumpRevision(this.settings);
 		await this.saveData(this.settings);
 	}
 }
