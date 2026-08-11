@@ -64,10 +64,64 @@ function sanitizeRule(rule: Rule): Rule {
 	return { ...rule };
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Full shape check: every field present with its expected type. */
+function isRule(value: unknown): value is Rule {
+	return (
+		isPlainObject(value) &&
+		typeof value.id === "string" &&
+		typeof value.pattern === "string" &&
+		typeof value.replacement === "string" &&
+		typeof value.global === "boolean" &&
+		typeof value.ignoreCase === "boolean" &&
+		typeof value.enabled === "boolean" &&
+		(value.name === undefined || typeof value.name === "string")
+	);
+}
+
+/**
+ * Recovers a persisted rule element that failed `isRule`. Object-shaped
+ * elements are coerced into a disabled placeholder (missing/mistyped fields
+ * get safe defaults) so the data is never silently dropped, consistent with
+ * sanitizeRule's never-drop policy for a rule that merely fails to compile.
+ * Non-object elements (null, a bare string/number, an array, ...) carry
+ * nothing worth keeping and are skipped.
+ */
+function coerceRule(value: unknown, index: number): Rule | null {
+	if (!isPlainObject(value)) {
+		console.warn(
+			`Tab Title Rules: dropped a malformed rule at index ${index} (expected an object, got ${
+				value === null ? "null" : typeof value
+			}).`,
+			value
+		);
+		return null;
+	}
+	const id = typeof value.id === "string" ? value.id : `invalid-rule-${index}`;
+	console.warn(
+		`Tab Title Rules: rule "${id}" has an invalid shape and was coerced to a disabled placeholder.`,
+		value
+	);
+	return {
+		id,
+		name: typeof value.name === "string" ? value.name : undefined,
+		pattern: typeof value.pattern === "string" ? value.pattern : "",
+		replacement: typeof value.replacement === "string" ? value.replacement : "",
+		global: typeof value.global === "boolean" ? value.global : false,
+		ignoreCase: typeof value.ignoreCase === "boolean" ? value.ignoreCase : false,
+		enabled: false,
+	};
+}
+
 /**
  * Merges persisted (untrusted) data over a fresh default settings object.
- * Pure and Obsidian-free so it is directly testable: this is the save-time
+ * Pure and Obsidian-free so it is directly testable: this is the load-time
  * boundary that lets applyRules() assume every enabled rule it sees compiles.
+ * The save-side counterpart is validateRule, invoked from the not-yet-built
+ * settings UI.
  */
 export function mergeSettings(raw: unknown): TabTitleRulesSettings {
 	const merged = createDefaultSettings();
@@ -77,7 +131,10 @@ export function mergeSettings(raw: unknown): TabTitleRulesSettings {
 			merged.rulesRevision = data.rulesRevision;
 		}
 		if (Array.isArray(data.rules)) {
-			merged.rules = data.rules.map(sanitizeRule);
+			merged.rules = data.rules
+				.map((entry, index) => (isRule(entry) ? entry : coerceRule(entry, index)))
+				.filter((rule): rule is Rule => rule !== null)
+				.map(sanitizeRule);
 		}
 	}
 	return merged;

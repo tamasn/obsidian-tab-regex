@@ -31,7 +31,6 @@ describe("validateRule", () => {
 			expect(result.error.length).toBeGreaterThan(0);
 		}
 	});
-
 });
 
 describe("createDefaultSettings", () => {
@@ -96,7 +95,6 @@ describe("mergeSettings", () => {
 		expect(result.rules).toHaveLength(2);
 		expect(result.rules[0].enabled).toBe(false);
 		expect(result.rules[1].enabled).toBe(true);
-		warn.mockRestore();
 	});
 
 	it("leaves an already-disabled invalid rule untouched (no redundant warning)", () => {
@@ -105,6 +103,59 @@ describe("mergeSettings", () => {
 		const result = mergeSettings({ rules: [broken] });
 		expect(result.rules[0]).toEqual(broken);
 		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("does not throw and drops a null rule element", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		let result: TabTitleRulesSettings | undefined;
+		expect(() => {
+			result = mergeSettings({ rules: [null] });
+		}).not.toThrow();
+		expect(result?.rules).toEqual([]);
+		expect(warn).toHaveBeenCalled();
+	});
+
+	it("drops a string rule element", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const result = mergeSettings({ rules: ["not-a-rule"] });
+		expect(result.rules).toEqual([]);
+		expect(warn).toHaveBeenCalled();
+	});
+
+	it("drops a number rule element", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const result = mergeSettings({ rules: [42] });
+		expect(result.rules).toEqual([]);
+		expect(warn).toHaveBeenCalled();
+	});
+
+	it("drops an array rule element", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const result = mergeSettings({ rules: [[]] });
+		expect(result.rules).toEqual([]);
+		expect(warn).toHaveBeenCalled();
+	});
+
+	it("coerces a shape-invalid object rule element to a disabled placeholder instead of treating it as a valid, always-matching rule", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const result = mergeSettings({ rules: [{ enabled: true }] });
+		expect(result.rules).toHaveLength(1);
+		expect(result.rules[0]).toMatchObject({
+			pattern: "",
+			replacement: "",
+			enabled: false,
+		});
+		expect(warn).toHaveBeenCalled();
+	});
+
+	it("keeps a healthy rule alongside a dropped and a coerced malformed element", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const healthy = makeRule({ pattern: "^ok$", enabled: true });
+		const result = mergeSettings({ rules: [null, { enabled: true }, healthy] });
+		expect(result.rules).toHaveLength(2);
+		expect(result.rules[0].enabled).toBe(false);
+		expect(result.rules[1]).toEqual(healthy);
+		expect(warn).toHaveBeenCalledTimes(2);
 	});
 });
 
