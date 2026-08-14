@@ -5,12 +5,14 @@ import {
 	mergeSettings,
 	type TabTitleRulesSettings,
 } from "./rules";
+import { TabTitleRulesSettingTab } from "./settings-tab";
 
 export default class TabTitleRulesPlugin extends Plugin {
 	settings: TabTitleRulesSettings = createDefaultSettings();
 
 	async onload() {
 		await this.loadSettings();
+		this.addSettingTab(new TabTitleRulesSettingTab(this.app, this));
 		console.log("Tab Title Rules: loaded");
 	}
 
