@@ -47,13 +47,20 @@ describe("buildPreview — agreement with applyRules", () => {
 		const rule1 = makeRule({ pattern: "note", replacement: "draft" });
 		const rule2 = makeRule({ pattern: "draft", replacement: "final" });
 		const preview = buildPreview("note.md", [rule1, rule2]);
-		expect(preview.result).toBe(applyRules("note.md", [rule1, rule2]));
+		expect(preview.result).toBe("final");
+		// buildPreview drives runChain directly and applyRules delegates to the same
+		// call, so comparing the two against each other is a tautology; assert each
+		// against the literal expected value instead.
+		expect(applyRules("note.md", [rule1, rule2])).toBe("final");
 	});
 
 	it("matches applyRules on the basename-fallback path", () => {
 		const rule = makeRule({ pattern: "zzz-does-not-match", replacement: "X" });
 		const preview = buildPreview("Projects/Client/index.md", [rule]);
-		expect(preview.result).toBe(applyRules("Projects/Client/index.md", [rule]));
+		expect(preview.result).toBe(basenameOf("Projects/Client/index.md"));
+		expect(applyRules("Projects/Client/index.md", [rule])).toBe(
+			basenameOf("Projects/Client/index.md")
+		);
 	});
 });
 
@@ -99,7 +106,9 @@ describe("buildPreview — usedFallback", () => {
 
 describe("buildPreview — long sample path capping", () => {
 	// anchor: architecture/gotchas/2026-08-11-grill-catastrophic-backtracking-freezes-ui-on-hot-path.md
-	it("caps a sample path to 256 chars before seeding, bounding a pathological pattern's cost while the user is still typing", () => {
+	// This asserts the length cap only. It does not assert (and the cap does not provide)
+	// any bound on backtracking cost, which remains unmitigated on this path.
+	it("caps a sample path to 256 chars before it is seeded", () => {
 		const longPath = "a".repeat(300) + "/note.md";
 		const capped = longPath.slice(0, 256);
 		const preview = buildPreview(longPath, []);

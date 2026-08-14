@@ -2,8 +2,11 @@ import { validateRule, type Rule } from "./rules";
 import { runChain, type StepOutcome } from "./engine";
 
 // anchor: architecture/gotchas/2026-08-11-grill-catastrophic-backtracking-freezes-ui-on-hot-path.md
-// Caps the sample path before it is ever seeded, bounding the cost of a pathological
-// pattern running against a long input while the user is mid-keystroke in the settings UI.
+// Bounds the length of the seeded input only. It does NOT bound backtracking cost:
+// catastrophic backtracking is exponential in input length, not linear, so a pathological
+// pattern can still freeze the UI well within this cap ((.+)+# measured at 136ms at 24
+// chars, 2.2s at 28, 35.7s at 32 - all under 256). That exposure remains unmitigated on
+// this hot path; see the gotcha doc.
 const MAX_SAMPLE_LENGTH = 256;
 
 export interface PreviewRow {
@@ -38,9 +41,9 @@ export function buildPreview(samplePath: string, rules: Rule[]): Preview {
 
 	const trace = runChain(sample, safeRules);
 
-	const rows: PreviewRow[] = trace.steps.map((step, index) => ({
+	const rows: PreviewRow[] = trace.steps.map((step) => ({
 		index: step.index,
-		outcome: validity[index] ? step.outcome : "invalid",
+		outcome: validity[step.index] ? step.outcome : "invalid",
 		before: step.before,
 		after: step.after,
 	}));

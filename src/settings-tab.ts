@@ -13,6 +13,7 @@ import type TabTitleRulesPlugin from "./main";
 const RULES_PERSIST_DEBOUNCE_MS = 400;
 const SAMPLE_PERSIST_DEBOUNCE_MS = 400;
 const PREVIEW_RENDER_DEBOUNCE_MS = 200;
+const DEFINITIONS_UPDATE_DEBOUNCE_MS = 400;
 
 type RuleField = "name" | "pattern" | "replacement" | "global" | "ignoreCase" | "enabled";
 
@@ -39,6 +40,7 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	private rulesPersistTimer: number | undefined;
 	private samplePersistTimer: number | undefined;
 	private previewRenderTimer: number | undefined;
+	private definitionsUpdateTimer: number | undefined;
 	private previewOutputEl: HTMLElement | undefined;
 	private previewSignature: string | undefined;
 	private previewCache: Preview | undefined;
@@ -54,7 +56,7 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 
 	getControlValue(key: string): unknown {
 		const parsed = parseRuleControlKey(key);
-		if (parsed === undefined) return undefined;
+		if (parsed === undefined) return super.getControlValue(key);
 		const rule = this.findRule(parsed.ruleId);
 		if (rule === undefined) return undefined;
 		switch (parsed.field) {
@@ -77,7 +79,10 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 
 	setControlValue(key: string, value: unknown): void {
 		const parsed = parseRuleControlKey(key);
-		if (parsed === undefined) return;
+		if (parsed === undefined) {
+			void super.setControlValue(key, value);
+			return;
+		}
 		const index = this.plugin.settings.rules.findIndex((rule) => rule.id === parsed.ruleId);
 		if (index === -1) return;
 		const rule = this.plugin.settings.rules[index];
@@ -101,9 +106,15 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 			case "ignoreCase":
 				nextRule = { ...rule, ignoreCase: Boolean(value) };
 				break;
-			case "enabled":
-				nextRule = { ...rule, enabled: Boolean(value) };
+			case "enabled": {
+				// Save-side integrity gate: mirrors the toggle's own `disabled` predicate so
+				// any write path that bypasses the DOM (keyboard activation, a future
+				// framework change, ...) still can't enable an invalid-pattern rule.
+				const enabled = Boolean(value);
+				if (enabled && !this.isRuleValid(parsed.ruleId)) return;
+				nextRule = { ...rule, enabled };
 				break;
+			}
 			default:
 				return;
 		}
@@ -115,19 +126,37 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		if (parsed.field === "pattern" || parsed.field === "global" || parsed.field === "ignoreCase") {
 			this.refreshDomState();
 		}
+		// Every field can change the rule list entry's name/displayValue/status, none of
+		// which refreshDomState() re-evaluates; debounced so typing doesn't force a
+		// structural re-render (and drop focus) on every keystroke.
+		this.scheduleDefinitionsUpdate();
 		this.schedulePreviewRefresh();
 	}
 
 	hide(): void {
-		if (this.rulesPersistTimer !== undefined) {
+		// Flush once: saveSettings() and savePreferences() write the identical settings
+		// object, so firing both back to back is a redundant, unserialized double write.
+		// saveSettings() also bumps the revision, so it takes priority when both timers
+		// are pending.
+		const rulesPending = this.rulesPersistTimer !== undefined;
+		const samplePending = this.samplePersistTimer !== undefined;
+		if (rulesPending) {
 			window.clearTimeout(this.rulesPersistTimer);
 			this.rulesPersistTimer = undefined;
-			void this.plugin.saveSettings();
 		}
-		if (this.samplePersistTimer !== undefined) {
+		if (samplePending) {
 			window.clearTimeout(this.samplePersistTimer);
 			this.samplePersistTimer = undefined;
+		}
+		if (rulesPending) {
+			void this.plugin.saveSettings();
+		} else if (samplePending) {
 			void this.plugin.savePreferences();
+		}
+		if (this.definitionsUpdateTimer !== undefined) {
+			window.clearTimeout(this.definitionsUpdateTimer);
+			this.definitionsUpdateTimer = undefined;
+			this.update();
 		}
 		if (this.previewRenderTimer !== undefined) {
 			window.clearTimeout(this.previewRenderTimer);
@@ -250,7 +279,27 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	private summarizeRule(id: string): string {
 		const rule = this.findRule(id);
 		if (rule === undefined) return "";
-		return `/${rule.pattern}/${flagsOf(rule)} → ${rule.replacement}`;
+		// SettingDefinitionPage has no control slot on the list entry itself, so fold
+		// enabled state into the one text surface the entry exposes.
+		const offPrefix = rule.enabled ? "" : "(off) ";
+		return `${offPrefix}/${rule.pattern}/${flagsOf(rule)} → ${rule.replacement}`;
+	}
+
+	/**
+	 * Debounced update(): name/pattern/replacement/global/ignoreCase/enabled edits all
+	 * change a rule list entry's name, displayValue, or status, none of which
+	 * refreshDomState() re-evaluates. update() re-renders the definitions structurally,
+	 * so calling it on every keystroke would drop text-field focus; this coalesces rapid
+	 * edits into a single refresh once the user pauses. Flushed in hide().
+	 */
+	private scheduleDefinitionsUpdate(): void {
+		if (this.definitionsUpdateTimer !== undefined) {
+			window.clearTimeout(this.definitionsUpdateTimer);
+		}
+		this.definitionsUpdateTimer = window.setTimeout(() => {
+			this.definitionsUpdateTimer = undefined;
+			this.update();
+		}, DEFINITIONS_UPDATE_DEBOUNCE_MS);
 	}
 
 	/**

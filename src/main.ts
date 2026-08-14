@@ -25,7 +25,11 @@ export default class TabTitleRulesPlugin extends Plugin {
 	}
 
 	async saveSettings() {
-		this.settings = bumpRevision(this.settings);
+		// mergeSettings re-runs the same isRule/coerceRule/sanitizeRule pipeline used at
+		// load time, so a write path that bypasses the settings tab's own guard (e.g.
+		// enabled: true written onto an invalid-pattern rule) still can't reach disk or
+		// the live settings object in a state validateRule would reject.
+		this.settings = mergeSettings(bumpRevision(this.settings));
 		await this.saveData(this.settings);
 	}
 

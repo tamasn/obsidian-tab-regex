@@ -223,7 +223,7 @@ describe("applyRules — regression: unanchored vs anchored path rule", () => {
 });
 
 describe("runChain — anti-drift sensor against applyRules", () => {
-	it("produces the same result as applyRules for chaining, disabled rules, and every fallback path", () => {
+	it("produces the documented result for chaining, disabled rules, and every fallback path", () => {
 		const cases = [
 			{
 				label: "chains two enabled rules, each seeing the previous rule's output",
@@ -232,6 +232,8 @@ describe("runChain — anti-drift sensor against applyRules", () => {
 					makeRule({ pattern: "note", replacement: "draft" }),
 					makeRule({ pattern: "draft", replacement: "final" }),
 				],
+				expected: "final",
+				expectedFallback: false,
 			},
 			{
 				label: "skips a disabled rule entirely",
@@ -243,28 +245,39 @@ describe("runChain — anti-drift sensor against applyRules", () => {
 						enabled: false,
 					}),
 				],
+				expected: "note",
+				expectedFallback: true,
 			},
 			{
 				label: "falls back to the basename when no enabled rule matches",
 				vaultPath: "Projects/Client/index.md",
 				rules: [makeRule({ pattern: "zzz-does-not-match", replacement: "X" })],
+				expected: basenameOf("Projects/Client/index.md"),
+				expectedFallback: true,
 			},
 			{
 				label: "falls back to the basename when the final accumulator is emptied",
 				vaultPath: "note.md",
 				rules: [makeRule({ pattern: "^note$", replacement: "" })],
+				expected: "note",
+				expectedFallback: true,
 			},
 			{
 				label: "does not fall back on a whitespace-only final accumulator",
 				vaultPath: "Projects/Client/index.md",
 				rules: [makeRule({ pattern: "^.*$", replacement: " " })],
+				expected: " ",
+				expectedFallback: false,
 			},
 		];
 
-		for (const { label, vaultPath, rules } of cases) {
-			const expected = applyRules(vaultPath, rules);
+		for (const { label, vaultPath, rules, expected, expectedFallback } of cases) {
 			const trace = runChain(vaultPath, rules);
 			expect(trace.result, label).toBe(expected);
+			expect(trace.usedFallback, label).toBe(expectedFallback);
+			// applyRules delegates straight to runChain, so this is a literal-value check
+			// on the public entry point rather than a round-trip through the same call.
+			expect(applyRules(vaultPath, rules), label).toBe(expected);
 		}
 	});
 });
