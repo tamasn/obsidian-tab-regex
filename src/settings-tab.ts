@@ -338,12 +338,28 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	 * True when focus is on a text-entry control (input, textarea, or
 	 * contenteditable) inside this tab's own containerEl — checked against the tab's
 	 * container rather than the whole document, so focus elsewhere in the app (or in a
-	 * different, unrelated settings tab) doesn't defer this tab's refresh.
+	 * different, unrelated settings tab) doesn't defer this tab's refresh. Reads
+	 * containerEl.doc (the document this tab's own elements belong to) rather than the
+	 * global `document`, and uses Node.instanceOf rather than plain `instanceof`,
+	 * because a popout window's elements live in that window's own document and JS
+	 * realm: the global document never reports them focused, and their constructors
+	 * fail a same-realm `instanceof` against this window's HTMLElement/HTMLInputElement
+	 * classes even when they are. Checks the focused input's `type` rather than
+	 * treating every HTMLInputElement as text entry, because non-text inputs (e.g. the
+	 * enable toggle's checkbox) have no caret to lose — updating while one holds focus
+	 * is harmless, and deferring anyway would starve that control's own resync for as
+	 * long as it holds focus.
 	 */
 	private isTextEntryFocused(): boolean {
-		const active = document.activeElement;
-		if (!(active instanceof HTMLElement) || !this.containerEl.contains(active)) return false;
-		if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return true;
+		const active = this.containerEl.doc.activeElement;
+		if (active === null || !active.instanceOf(HTMLElement) || !this.containerEl.contains(active)) {
+			return false;
+		}
+		if (active.instanceOf(HTMLTextAreaElement)) return true;
+		if (active.instanceOf(HTMLInputElement)) {
+			const textEntryTypes = ["text", "search", "url", "tel", "email", "password", "number"];
+			return textEntryTypes.includes(active.type);
+		}
 		return active.isContentEditable;
 	}
 
