@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	DEFAULT_SAMPLE_PATH,
 	DEFAULT_SETTINGS,
 	bumpRevision,
 	createDefaultSettings,
@@ -204,6 +205,41 @@ describe("bumpRevision", () => {
 		const settings: TabTitleRulesSettings = { rules: [], rulesRevision: 3 };
 		bumpRevision(settings);
 		expect(settings.rulesRevision).toBe(3);
+	});
+});
+
+describe("mergeSettings — samplePath", () => {
+	it("defaults to DEFAULT_SAMPLE_PATH when absent from persisted data, not undefined", () => {
+		const result = mergeSettings({ rules: [], rulesRevision: 0 });
+		expect(result.samplePath).toBe(DEFAULT_SAMPLE_PATH);
+		expect(result.samplePath).not.toBeUndefined();
+	});
+
+	it("falls back to DEFAULT_SAMPLE_PATH when the persisted value is not a string", () => {
+		const result = mergeSettings({ rules: [], rulesRevision: 0, samplePath: 42 });
+		expect(result.samplePath).toBe(DEFAULT_SAMPLE_PATH);
+	});
+});
+
+describe("mergeSettings — migration pin: adding a required Rule field must not disable stored rules", () => {
+	// Expected to be green immediately — this is a regression sensor, not a red test. isRule
+	// requires every field and routes any mismatch to coerceRule, which force-disables the rule,
+	// so adding a required field to Rule without updating isRule/coerceRule would silently disable
+	// every rule already saved by a user on upgrade.
+	// gotcha: architecture/gotchas/2026-08-12-work-isrule-required-field-disables-all-stored-rules.md
+	it("a stored rule in today's six-field shape passes isRule and survives mergeSettings untouched, enabled preserved", () => {
+		const stored = {
+			id: "stored-1",
+			pattern: "^ok$",
+			replacement: "ok",
+			global: false,
+			ignoreCase: false,
+			enabled: true,
+		};
+		const result = mergeSettings({ rules: [stored], rulesRevision: 0 });
+		expect(result.rules).toHaveLength(1);
+		expect(result.rules[0]).toEqual(stored);
+		expect(result.rules[0].enabled).toBe(true);
 	});
 });
 
