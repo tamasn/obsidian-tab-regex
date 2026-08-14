@@ -37,6 +37,14 @@ export function flagsOf(rule: Rule): string {
 }
 
 export function validateRule(rule: Rule): RuleValidation {
+	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	// An empty pattern compiles to /(?:)/, matching every position, so an enabled empty-pattern
+	// rule always "matches" and suppresses the basename fallback. Reject here, at the single
+	// validation gate, so both entry points (the coerced placeholder and a fully-shaped
+	// {pattern: "", enabled: true} rule that passes isRule) are closed.
+	if (rule.pattern === "") {
+		return { ok: false, error: "Pattern must not be empty." };
+	}
 	try {
 		new RegExp(rule.pattern, flagsOf(rule));
 		return { ok: true };
