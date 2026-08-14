@@ -11,7 +11,11 @@ export interface Rule {
 export interface TabTitleRulesSettings {
 	rules: Rule[];
 	rulesRevision: number;
+	samplePath?: string;
 }
+
+/** Seed sample path for the settings UI's live preview when nothing is persisted yet. */
+export const DEFAULT_SAMPLE_PATH = "Projects/Client/index.md";
 
 /**
  * Returns a fresh settings object on every call. Callers must not share a
@@ -19,7 +23,7 @@ export interface TabTitleRulesSettings {
  * mutating one caller's settings can never alias another's.
  */
 export function createDefaultSettings(): TabTitleRulesSettings {
-	return { rules: [], rulesRevision: 0 };
+	return { rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH };
 }
 
 // Frozen so accidental mutation (e.g. `DEFAULT_SETTINGS.rules.push(...)`)
@@ -28,6 +32,7 @@ export function createDefaultSettings(): TabTitleRulesSettings {
 export const DEFAULT_SETTINGS: TabTitleRulesSettings = Object.freeze({
 	rules: Object.freeze([] as Rule[]),
 	rulesRevision: 0,
+	samplePath: DEFAULT_SAMPLE_PATH,
 }) as TabTitleRulesSettings;
 
 export type RuleValidation = { ok: true } | { ok: false; error: string };
@@ -137,6 +142,9 @@ export function mergeSettings(raw: unknown): TabTitleRulesSettings {
 		const data = raw as Partial<TabTitleRulesSettings>;
 		if (typeof data.rulesRevision === "number") {
 			merged.rulesRevision = data.rulesRevision;
+		}
+		if (typeof data.samplePath === "string") {
+			merged.samplePath = data.samplePath;
 		}
 		if (Array.isArray(data.rules)) {
 			merged.rules = data.rules

@@ -26,4 +26,14 @@ export default class TabTitleRulesPlugin extends Plugin {
 		this.settings = bumpRevision(this.settings);
 		await this.saveData(this.settings);
 	}
+
+	/**
+	 * Persists settings without bumping rulesRevision. saveSettings()'s bump is the
+	 * whole-workspace tab-title cache-invalidation trigger, so routing a cosmetic
+	 * sample-path edit through it would invalidate every cached title on each
+	 * keystroke. Rule mutations keep using saveSettings(); sample-path edits use this.
+	 */
+	async savePreferences() {
+		await this.saveData(this.settings);
+	}
 }

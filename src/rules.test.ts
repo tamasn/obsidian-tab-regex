@@ -50,7 +50,7 @@ describe("createDefaultSettings", () => {
 		const a = createDefaultSettings();
 		const b = createDefaultSettings();
 		expect(a.rules).not.toBe(b.rules);
-		expect(a).toEqual({ rules: [], rulesRevision: 0 });
+		expect(a).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
 	});
 
 	it("mutating one caller's rules array does not affect another caller's", () => {
@@ -68,7 +68,7 @@ describe("mergeSettings", () => {
 
 	it("returns fresh default settings for null (first-run loadData)", () => {
 		const result = mergeSettings(null);
-		expect(result).toEqual({ rules: [], rulesRevision: 0 });
+		expect(result).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
 	});
 
 	it("returned rules array is not aliased to DEFAULT_SETTINGS.rules", () => {
@@ -85,9 +85,9 @@ describe("mergeSettings", () => {
 	});
 
 	it("ignores a non-object payload and falls back to defaults", () => {
-		expect(mergeSettings(undefined)).toEqual({ rules: [], rulesRevision: 0 });
-		expect(mergeSettings("garbage")).toEqual({ rules: [], rulesRevision: 0 });
-		expect(mergeSettings(42)).toEqual({ rules: [], rulesRevision: 0 });
+		expect(mergeSettings(undefined)).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
+		expect(mergeSettings("garbage")).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
+		expect(mergeSettings(42)).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
 	});
 
 	it("forces an enabled rule with an invalid pattern to enabled: false, keeping the rest of the data", () => {
