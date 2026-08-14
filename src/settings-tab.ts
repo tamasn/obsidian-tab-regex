@@ -418,7 +418,7 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 					}:${rule.enabled ? 1 : 0}`
 			)
 			.join("|");
-		return `${sample} ${rulesSignature}`;
+		return `${sample}\u0000${rulesSignature}`;
 	}
 
 	private getPreview(): Preview {
