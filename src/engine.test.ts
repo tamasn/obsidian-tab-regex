@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyRules, basenameOf, seedFromPath } from "./engine";
+import { applyRules, basenameOf, runChain, seedFromPath } from "./engine";
 import { makeRule } from "./test-fixtures";
 
 describe("seedFromPath", () => {
@@ -219,5 +219,125 @@ describe("applyRules — regression: unanchored vs anchored path rule", () => {
 		});
 		const result = applyRules("Projects/Client/index.md", [rule]);
 		expect(result).toBe("Client");
+	});
+});
+
+describe("runChain — anti-drift sensor against applyRules", () => {
+	it("produces the documented result for chaining, disabled rules, and every fallback path", () => {
+		const cases = [
+			{
+				label: "chains two enabled rules, each seeing the previous rule's output",
+				vaultPath: "note.md",
+				rules: [
+					makeRule({ pattern: "note", replacement: "draft" }),
+					makeRule({ pattern: "draft", replacement: "final" }),
+				],
+				expected: "final",
+				expectedFallback: false,
+			},
+			{
+				label: "skips a disabled rule entirely",
+				vaultPath: "note.md",
+				rules: [
+					makeRule({
+						pattern: "note",
+						replacement: "SHOULD_NOT_APPEAR",
+						enabled: false,
+					}),
+				],
+				expected: "note",
+				expectedFallback: true,
+			},
+			{
+				label: "falls back to the basename when no enabled rule matches",
+				vaultPath: "Projects/Client/index.md",
+				rules: [makeRule({ pattern: "zzz-does-not-match", replacement: "X" })],
+				expected: basenameOf("Projects/Client/index.md"),
+				expectedFallback: true,
+			},
+			{
+				label: "falls back to the basename when the final accumulator is emptied",
+				vaultPath: "note.md",
+				rules: [makeRule({ pattern: "^note$", replacement: "" })],
+				expected: "note",
+				expectedFallback: true,
+			},
+			{
+				label: "does not fall back on a whitespace-only final accumulator",
+				vaultPath: "Projects/Client/index.md",
+				rules: [makeRule({ pattern: "^.*$", replacement: " " })],
+				expected: " ",
+				expectedFallback: false,
+			},
+		];
+
+		for (const { label, vaultPath, rules, expected, expectedFallback } of cases) {
+			const trace = runChain(vaultPath, rules);
+			expect(trace.result, label).toBe(expected);
+			expect(trace.usedFallback, label).toBe(expectedFallback);
+			// applyRules delegates straight to runChain, so this is a literal-value check
+			// on the public entry point rather than a round-trip through the same call.
+			expect(applyRules(vaultPath, rules), label).toBe(expected);
+		}
+	});
+});
+
+describe("runChain — usedFallback", () => {
+	// decision: architecture/decisions/2026-08-11-grill-basename-fallback-for-unmatched-and-empty-titles.md
+	it("is true when no enabled rule matches at its turn", () => {
+		const rule = makeRule({ pattern: "zzz-does-not-match", replacement: "X" });
+		const trace = runChain("Projects/Client/index.md", [rule]);
+		expect(trace.usedFallback).toBe(true);
+		expect(trace.result).toBe(basenameOf("Projects/Client/index.md"));
+	});
+
+	// decision: architecture/decisions/2026-08-11-grill-basename-fallback-for-unmatched-and-empty-titles.md
+	it("is true when the final accumulator is exactly the empty string", () => {
+		const rule = makeRule({ pattern: "^note$", replacement: "" });
+		const trace = runChain("note.md", [rule]);
+		expect(trace.usedFallback).toBe(true);
+		expect(trace.result).toBe(basenameOf("note.md"));
+	});
+
+	it("is false when an enabled rule matches and leaves a non-empty result", () => {
+		const rule = makeRule({ pattern: "note", replacement: "draft" });
+		const trace = runChain("note.md", [rule]);
+		expect(trace.usedFallback).toBe(false);
+		expect(trace.result).toBe("draft");
+	});
+});
+
+describe("runChain — per-step outcome", () => {
+	it("marks a disabled rule's step as disabled, distinct from a rule that ran but did not match", () => {
+		const disabledRule = makeRule({ pattern: "zzz", replacement: "X", enabled: false });
+		const noMatchRule = makeRule({ pattern: "yyy-does-not-match", replacement: "X" });
+		const trace = runChain("note.md", [disabledRule, noMatchRule]);
+		expect(trace.steps[0].outcome).toBe("disabled");
+		expect(trace.steps[1].outcome).toBe("no-match");
+	});
+
+	it("marks a matching enabled rule's step as applied", () => {
+		const rule = makeRule({ pattern: "note", replacement: "draft" });
+		const trace = runChain("note.md", [rule]);
+		expect(trace.steps[0].outcome).toBe("applied");
+	});
+});
+
+describe("runChain — step before/after", () => {
+	it("records each step's before/after accumulator, chained from the seed", () => {
+		const rule1 = makeRule({ pattern: "note", replacement: "draft" });
+		const rule2 = makeRule({ pattern: "draft", replacement: "final" });
+		const trace = runChain("note.md", [rule1, rule2]);
+		expect(trace.seed).toBe(seedFromPath("note.md"));
+		expect(trace.steps[0]).toMatchObject({ index: 0, before: "note", after: "draft" });
+		expect(trace.steps[1]).toMatchObject({ index: 1, before: "draft", after: "final" });
+	});
+
+	it("identifies a rule that matched but produced no change via before === after", () => {
+		const noopRule = makeRule({ pattern: "note", replacement: "note" });
+		const trace = runChain("note.md", [noopRule]);
+		expect(trace.steps[0].outcome).toBe("applied");
+		expect(trace.steps[0].before).toBe(trace.steps[0].after);
+		expect(trace.steps[0].before).toBe("note");
 	});
 });

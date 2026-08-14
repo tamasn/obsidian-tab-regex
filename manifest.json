@@ -2,7 +2,7 @@
 	"id": "tab-title-rules",
 	"name": "Tab Title Rules",
 	"version": "0.0.1",
-	"minAppVersion": "1.0.0",
+	"minAppVersion": "1.13.1",
 	"description": "Rewrites open-tab titles through a user-ordered chain of regex/backreference rules, without renaming the underlying files.",
 	"author": "Tamas Neltz",
 	"isDesktopOnly": false

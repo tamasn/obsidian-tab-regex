@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	DEFAULT_SAMPLE_PATH,
 	DEFAULT_SETTINGS,
 	bumpRevision,
 	createDefaultSettings,
@@ -7,6 +8,7 @@ import {
 	validateRule,
 	type TabTitleRulesSettings,
 } from "./rules";
+import { applyRules } from "./engine";
 import { makeRule } from "./test-fixtures";
 
 describe("DEFAULT_SETTINGS", () => {
@@ -31,6 +33,16 @@ describe("validateRule", () => {
 			expect(result.error.length).toBeGreaterThan(0);
 		}
 	});
+
+	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	it("rejects an empty pattern with a non-empty error message", () => {
+		const result = validateRule(makeRule({ pattern: "" }));
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(typeof result.error).toBe("string");
+			expect(result.error.length).toBeGreaterThan(0);
+		}
+	});
 });
 
 describe("createDefaultSettings", () => {
@@ -38,7 +50,7 @@ describe("createDefaultSettings", () => {
 		const a = createDefaultSettings();
 		const b = createDefaultSettings();
 		expect(a.rules).not.toBe(b.rules);
-		expect(a).toEqual({ rules: [], rulesRevision: 0 });
+		expect(a).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
 	});
 
 	it("mutating one caller's rules array does not affect another caller's", () => {
@@ -56,7 +68,7 @@ describe("mergeSettings", () => {
 
 	it("returns fresh default settings for null (first-run loadData)", () => {
 		const result = mergeSettings(null);
-		expect(result).toEqual({ rules: [], rulesRevision: 0 });
+		expect(result).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
 	});
 
 	it("returned rules array is not aliased to DEFAULT_SETTINGS.rules", () => {
@@ -73,9 +85,9 @@ describe("mergeSettings", () => {
 	});
 
 	it("ignores a non-object payload and falls back to defaults", () => {
-		expect(mergeSettings(undefined)).toEqual({ rules: [], rulesRevision: 0 });
-		expect(mergeSettings("garbage")).toEqual({ rules: [], rulesRevision: 0 });
-		expect(mergeSettings(42)).toEqual({ rules: [], rulesRevision: 0 });
+		expect(mergeSettings(undefined)).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
+		expect(mergeSettings("garbage")).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
+		expect(mergeSettings(42)).toEqual({ rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH });
 	});
 
 	it("forces an enabled rule with an invalid pattern to enabled: false, keeping the rest of the data", () => {
@@ -157,6 +169,28 @@ describe("mergeSettings", () => {
 		expect(result.rules[1]).toEqual(healthy);
 		expect(warn).toHaveBeenCalledTimes(2);
 	});
+
+	// A fully-shaped rule with pattern: "" passes isRule and never reaches coerceRule;
+	// sanitizeRule is the only gate left, so it must ask validateRule to reject it.
+	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	it("force-disables a fully-shaped, enabled rule whose pattern is the empty string, keeping it in the array", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const emptyPattern = makeRule({ pattern: "", replacement: "", enabled: true });
+		const result = mergeSettings({ rules: [emptyPattern] });
+		expect(result.rules).toHaveLength(1);
+		expect(result.rules[0]).toEqual({ ...emptyPattern, enabled: false });
+		expect(warn).toHaveBeenCalled();
+	});
+
+	it("still coerces a shape-invalid rule element to a stored placeholder with pattern '' and enabled: false", () => {
+		// Pin: the empty-pattern fix lives in validateRule, not coerceRule — persisted
+		// placeholder data is unchanged by it.
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const result = mergeSettings({ rules: [{ enabled: true }] });
+		expect(result.rules[0].pattern).toBe("");
+		expect(result.rules[0].enabled).toBe(false);
+		expect(warn).toHaveBeenCalled();
+	});
 });
 
 describe("bumpRevision", () => {
@@ -171,5 +205,51 @@ describe("bumpRevision", () => {
 		const settings: TabTitleRulesSettings = { rules: [], rulesRevision: 3 };
 		bumpRevision(settings);
 		expect(settings.rulesRevision).toBe(3);
+	});
+});
+
+describe("mergeSettings — samplePath", () => {
+	it("defaults to DEFAULT_SAMPLE_PATH when absent from persisted data, not undefined", () => {
+		const result = mergeSettings({ rules: [], rulesRevision: 0 });
+		expect(result.samplePath).toBe(DEFAULT_SAMPLE_PATH);
+		expect(result.samplePath).not.toBeUndefined();
+	});
+
+	it("falls back to DEFAULT_SAMPLE_PATH when the persisted value is not a string", () => {
+		const result = mergeSettings({ rules: [], rulesRevision: 0, samplePath: 42 });
+		expect(result.samplePath).toBe(DEFAULT_SAMPLE_PATH);
+	});
+});
+
+describe("mergeSettings — migration pin: adding a required Rule field must not disable stored rules", () => {
+	// Expected to be green immediately — this is a regression sensor, not a red test. isRule
+	// requires every field and routes any mismatch to coerceRule, which force-disables the rule,
+	// so adding a required field to Rule without updating isRule/coerceRule would silently disable
+	// every rule already saved by a user on upgrade.
+	// gotcha: architecture/gotchas/2026-08-12-work-isrule-required-field-disables-all-stored-rules.md
+	it("a stored rule in today's six-field shape passes isRule and survives mergeSettings untouched, enabled preserved", () => {
+		const stored = {
+			id: "stored-1",
+			pattern: "^ok$",
+			replacement: "ok",
+			global: false,
+			ignoreCase: false,
+			enabled: true,
+		};
+		const result = mergeSettings({ rules: [stored], rulesRevision: 0 });
+		expect(result.rules).toHaveLength(1);
+		expect(result.rules[0]).toEqual(stored);
+		expect(result.rules[0].enabled).toBe(true);
+	});
+});
+
+describe("mergeSettings + applyRules — load boundary for an enabled empty-pattern rule", () => {
+	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	it("an enabled empty-pattern rule no longer suppresses the basename fallback after passing through mergeSettings", () => {
+		const emptyPattern = makeRule({ pattern: "", replacement: "", enabled: true });
+		const settings = mergeSettings({ rules: [emptyPattern] });
+		const result = applyRules("Notes/2024/Report.md", settings.rules);
+		expect(result).toBe("Report");
+		expect(result).not.toBe("Notes/2024/Report");
 	});
 });

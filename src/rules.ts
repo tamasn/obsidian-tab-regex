@@ -11,7 +11,11 @@ export interface Rule {
 export interface TabTitleRulesSettings {
 	rules: Rule[];
 	rulesRevision: number;
+	samplePath?: string;
 }
+
+/** Seed sample path for the settings UI's live preview when nothing is persisted yet. */
+export const DEFAULT_SAMPLE_PATH = "Projects/Client/index.md";
 
 /**
  * Returns a fresh settings object on every call. Callers must not share a
@@ -19,7 +23,7 @@ export interface TabTitleRulesSettings {
  * mutating one caller's settings can never alias another's.
  */
 export function createDefaultSettings(): TabTitleRulesSettings {
-	return { rules: [], rulesRevision: 0 };
+	return { rules: [], rulesRevision: 0, samplePath: DEFAULT_SAMPLE_PATH };
 }
 
 // Frozen so accidental mutation (e.g. `DEFAULT_SETTINGS.rules.push(...)`)
@@ -28,6 +32,7 @@ export function createDefaultSettings(): TabTitleRulesSettings {
 export const DEFAULT_SETTINGS: TabTitleRulesSettings = Object.freeze({
 	rules: Object.freeze([] as Rule[]),
 	rulesRevision: 0,
+	samplePath: DEFAULT_SAMPLE_PATH,
 }) as TabTitleRulesSettings;
 
 export type RuleValidation = { ok: true } | { ok: false; error: string };
@@ -37,6 +42,14 @@ export function flagsOf(rule: Rule): string {
 }
 
 export function validateRule(rule: Rule): RuleValidation {
+	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	// An empty pattern compiles to /(?:)/, matching every position, so an enabled empty-pattern
+	// rule always "matches" and suppresses the basename fallback. Reject here, at the single
+	// validation gate, so both entry points (the coerced placeholder and a fully-shaped
+	// {pattern: "", enabled: true} rule that passes isRule) are closed.
+	if (rule.pattern === "") {
+		return { ok: false, error: "Pattern must not be empty." };
+	}
 	try {
 		new RegExp(rule.pattern, flagsOf(rule));
 		return { ok: true };
@@ -129,6 +142,9 @@ export function mergeSettings(raw: unknown): TabTitleRulesSettings {
 		const data = raw as Partial<TabTitleRulesSettings>;
 		if (typeof data.rulesRevision === "number") {
 			merged.rulesRevision = data.rulesRevision;
+		}
+		if (typeof data.samplePath === "string") {
+			merged.samplePath = data.samplePath;
 		}
 		if (Array.isArray(data.rules)) {
 			merged.rules = data.rules

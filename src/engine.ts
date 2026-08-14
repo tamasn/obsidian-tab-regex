@@ -17,12 +17,41 @@ export function basenameOf(vaultPath: string): string {
 	return lastSlash === -1 ? seeded : seeded.slice(lastSlash + 1);
 }
 
-export function applyRules(vaultPath: string, rules: Rule[]): string {
-	let acc = seedFromPath(vaultPath);
-	let matched = false;
+export type StepOutcome = "disabled" | "no-match" | "applied";
 
-	for (const rule of rules) {
-		if (!rule.enabled) continue;
+export interface RuleStep {
+	index: number;
+	before: string;
+	after: string;
+	outcome: StepOutcome;
+}
+
+export interface ChainTrace {
+	seed: string;
+	steps: RuleStep[];
+	result: string;
+	usedFallback: boolean;
+}
+
+/**
+ * The single walker for the rule chain: both the tab-title path (applyRules)
+ * and the settings UI's live preview drive through this so they can never
+ * drift apart.
+ */
+export function runChain(vaultPath: string, rules: Rule[]): ChainTrace {
+	const seed = seedFromPath(vaultPath);
+	let acc = seed;
+	let matched = false;
+	const steps: RuleStep[] = [];
+
+	for (let index = 0; index < rules.length; index++) {
+		const rule = rules[index];
+		const before = acc;
+
+		if (!rule.enabled) {
+			steps.push({ index, before, after: before, outcome: "disabled" });
+			continue;
+		}
 
 		// A single compiled RegExp is reused for both test() and replace() below.
 		// This is safe even when `global` is set: RegExp.prototype[Symbol.replace]
@@ -30,15 +59,22 @@ export function applyRules(vaultPath: string, rules: Rule[]): string {
 		// global, so test()'s lastIndex advancement never leaks into replace() (or
 		// into the next call, since a fresh RegExp is compiled per rule per call).
 		const regex = new RegExp(rule.pattern, flagsOf(rule));
-		if (!regex.test(acc)) continue;
+		if (!regex.test(before)) {
+			steps.push({ index, before, after: before, outcome: "no-match" });
+			continue;
+		}
 
 		matched = true;
-		acc = acc.replace(regex, rule.replacement);
+		acc = before.replace(regex, rule.replacement);
+		steps.push({ index, before, after: acc, outcome: "applied" });
 	}
 
-	if (!matched || acc === "") {
-		return basenameOf(vaultPath);
-	}
+	const usedFallback = !matched || acc === "";
+	const result = usedFallback ? basenameOf(vaultPath) : acc;
 
-	return acc;
+	return { seed, steps, result, usedFallback };
+}
+
+export function applyRules(vaultPath: string, rules: Rule[]): string {
+	return runChain(vaultPath, rules).result;
 }
