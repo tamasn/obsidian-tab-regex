@@ -116,11 +116,14 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 				// framework change, ...) still can't enable an invalid-pattern rule.
 				const enabled = Boolean(value);
 				if (enabled && !this.isRuleValid(parsed.ruleId)) {
-					// Reject without mutating, but resync the DOM in case the toggle
-					// already flipped optimistically (e.g. keyboard activation bypassing
-					// its own `disabled` predicate) — otherwise it'd show "on" over a
-					// model that's still "off".
-					this.refreshDomState();
+					// Reject without mutating. The toggle may already have flipped
+					// optimistically (e.g. keyboard activation bypassing its own
+					// `disabled` predicate); resyncing its displayed value needs a
+					// re-render — getControlValue() is only re-read on render, and
+					// refreshDomState() only re-evaluates `visible`/`disabled` predicates,
+					// it cannot touch a control's value. Route through the same debounced,
+					// focus-aware scheduler used for list-entry refresh.
+					this.scheduleDefinitionsUpdate();
 					return;
 				}
 				nextRule = { ...rule, enabled };
@@ -137,16 +140,14 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		if (parsed.field === "pattern" || parsed.field === "global" || parsed.field === "ignoreCase") {
 			this.refreshDomState();
 		}
-		// Per obsidian.d.ts: SettingDefinitionPage.displayValue and .status are function
-		// forms (used here via summarizeRule/isRuleValid) — evaluated fresh whenever the
-		// list row next renders, no update() required. `name`, by contrast, is a plain
-		// `string` baked into the definition when buildRulePage() runs, so it's the only
-		// one of the three that goes stale without a rebuild. Scoping the debounce to
-		// `name` alone keeps it off the pattern/replacement fields, which is where the
-		// feature's actual typing happens.
-		if (parsed.field === "name") {
-			this.scheduleDefinitionsUpdate();
-		}
+		// Per obsidian.d.ts, SettingDefinitionPage.displayValue and .status carry only
+		// "call update() to refresh" — unlike `disabled`/`visible`, they are not
+		// re-evaluated on render. `name` is a plain `string` snapshotted when
+		// buildRulePage() runs. All three (used here via summarizeRule/isRuleValid/name)
+		// go stale without a rebuild, so every field schedules one; the focus-aware
+		// deferral in scheduleDefinitionsUpdate() keeps that from stealing focus/caret
+		// while a text control is active.
+		this.scheduleDefinitionsUpdate();
 		this.schedulePreviewRefresh();
 	}
 
@@ -306,21 +307,44 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	}
 
 	/**
-	 * Debounced update(), triggered only by `name` edits (see call site). `name` is a
-	 * plain string on SettingDefinitionPage, snapshotted when buildRulePage() runs, so
-	 * it's the one piece of list-entry state that update() must be called to refresh.
-	 * update() re-renders the definitions structurally, so calling it on every keystroke
-	 * would drop text-field focus; this coalesces rapid edits into a single refresh once
-	 * the user pauses. Not flushed in hide() — see there for why.
+	 * Debounced update(), triggered by every field edit (see call sites in
+	 * setControlValue(), including the enabled-toggle reject path). Per obsidian.d.ts,
+	 * `displayValue`/`status`/`name` on SettingDefinitionPage all require update() to
+	 * refresh — none re-evaluate on render the way `disabled`/`visible` do — so any
+	 * field's edit can leave the list entry stale. update() re-renders the definitions
+	 * structurally, so calling it while a text control has focus would steal that focus
+	 * (and the caret, mid-edit). The timer callback defers rather than firing whenever
+	 * the active element is a text-entry control inside this tab's containerEl, and
+	 * reschedules itself so the pending update is never dropped, only postponed — it
+	 * lands the moment focus leaves the field, which is necessarily before the user can
+	 * navigate back to the list and see a stale entry. Not flushed in hide() — see there
+	 * for why (a fresh display() rebuilds definitions from scratch regardless).
 	 */
 	private scheduleDefinitionsUpdate(): void {
 		if (this.definitionsUpdateTimer !== undefined) {
 			window.clearTimeout(this.definitionsUpdateTimer);
 		}
 		this.definitionsUpdateTimer = window.setTimeout(() => {
+			if (this.isTextEntryFocused()) {
+				this.scheduleDefinitionsUpdate();
+				return;
+			}
 			this.definitionsUpdateTimer = undefined;
 			this.update();
 		}, DEFINITIONS_UPDATE_DEBOUNCE_MS);
+	}
+
+	/**
+	 * True when focus is on a text-entry control (input, textarea, or
+	 * contenteditable) inside this tab's own containerEl — checked against the tab's
+	 * container rather than the whole document, so focus elsewhere in the app (or in a
+	 * different, unrelated settings tab) doesn't defer this tab's refresh.
+	 */
+	private isTextEntryFocused(): boolean {
+		const active = document.activeElement;
+		if (!(active instanceof HTMLElement) || !this.containerEl.contains(active)) return false;
+		if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return true;
+		return active.isContentEditable;
 	}
 
 	/**
