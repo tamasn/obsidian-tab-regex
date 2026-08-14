@@ -80,7 +80,11 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	setControlValue(key: string, value: unknown): void {
 		const parsed = parseRuleControlKey(key);
 		if (parsed === undefined) {
-			void super.setControlValue(key, value);
+			// Base impl mutates and persists plugin settings and may reject; a bare
+			// `void` would drop that as an unhandled rejection.
+			Promise.resolve(super.setControlValue(key, value)).catch((error: unknown) => {
+				console.error("obsidian-tab-regex: setControlValue failed", key, error);
+			});
 			return;
 		}
 		const index = this.plugin.settings.rules.findIndex((rule) => rule.id === parsed.ruleId);
@@ -111,7 +115,14 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 				// any write path that bypasses the DOM (keyboard activation, a future
 				// framework change, ...) still can't enable an invalid-pattern rule.
 				const enabled = Boolean(value);
-				if (enabled && !this.isRuleValid(parsed.ruleId)) return;
+				if (enabled && !this.isRuleValid(parsed.ruleId)) {
+					// Reject without mutating, but resync the DOM in case the toggle
+					// already flipped optimistically (e.g. keyboard activation bypassing
+					// its own `disabled` predicate) — otherwise it'd show "on" over a
+					// model that's still "off".
+					this.refreshDomState();
+					return;
+				}
 				nextRule = { ...rule, enabled };
 				break;
 			}
@@ -126,10 +137,16 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		if (parsed.field === "pattern" || parsed.field === "global" || parsed.field === "ignoreCase") {
 			this.refreshDomState();
 		}
-		// Every field can change the rule list entry's name/displayValue/status, none of
-		// which refreshDomState() re-evaluates; debounced so typing doesn't force a
-		// structural re-render (and drop focus) on every keystroke.
-		this.scheduleDefinitionsUpdate();
+		// Per obsidian.d.ts: SettingDefinitionPage.displayValue and .status are function
+		// forms (used here via summarizeRule/isRuleValid) — evaluated fresh whenever the
+		// list row next renders, no update() required. `name`, by contrast, is a plain
+		// `string` baked into the definition when buildRulePage() runs, so it's the only
+		// one of the three that goes stale without a rebuild. Scoping the debounce to
+		// `name` alone keeps it off the pattern/replacement fields, which is where the
+		// feature's actual typing happens.
+		if (parsed.field === "name") {
+			this.scheduleDefinitionsUpdate();
+		}
 		this.schedulePreviewRefresh();
 	}
 
@@ -153,10 +170,13 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		} else if (samplePending) {
 			void this.plugin.savePreferences();
 		}
+		// Drop rather than flush: update() has no persistent effect, and this tab is being
+		// torn down — display() rebuilds getSettingDefinitions() from scratch on next open
+		// regardless, so calling update() here would only re-enter the (also-tearing-down)
+		// preview render callback for no visible benefit.
 		if (this.definitionsUpdateTimer !== undefined) {
 			window.clearTimeout(this.definitionsUpdateTimer);
 			this.definitionsUpdateTimer = undefined;
-			this.update();
 		}
 		if (this.previewRenderTimer !== undefined) {
 			window.clearTimeout(this.previewRenderTimer);
@@ -286,11 +306,12 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	}
 
 	/**
-	 * Debounced update(): name/pattern/replacement/global/ignoreCase/enabled edits all
-	 * change a rule list entry's name, displayValue, or status, none of which
-	 * refreshDomState() re-evaluates. update() re-renders the definitions structurally,
-	 * so calling it on every keystroke would drop text-field focus; this coalesces rapid
-	 * edits into a single refresh once the user pauses. Flushed in hide().
+	 * Debounced update(), triggered only by `name` edits (see call site). `name` is a
+	 * plain string on SettingDefinitionPage, snapshotted when buildRulePage() runs, so
+	 * it's the one piece of list-entry state that update() must be called to refresh.
+	 * update() re-renders the definitions structurally, so calling it on every keystroke
+	 * would drop text-field focus; this coalesces rapid edits into a single refresh once
+	 * the user pauses. Not flushed in hide() — see there for why.
 	 */
 	private scheduleDefinitionsUpdate(): void {
 		if (this.definitionsUpdateTimer !== undefined) {
