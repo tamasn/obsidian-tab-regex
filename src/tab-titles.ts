@@ -25,5 +25,11 @@ export function sweepWorkspace(app: App): void {
 		// way to force a tab-header redraw; the optional cast degrades gracefully
 		// to a next-natural-redraw refresh instead of throwing if it ever disappears.
 		(leaf as { updateHeader?: () => void }).updateHeader?.();
+
+		// titleEl is likewise absent from FileView's public typings (only Modal
+		// declares it), but it is the same held node reference the view sets once
+		// at file-load via `titleEl.setText(this.getDisplayText())`; updateHeader()
+		// never touches it, so without this the in-pane header goes stale.
+		(leaf.view as { titleEl?: HTMLElement }).titleEl?.setText(leaf.view.getDisplayText());
 	});
 }

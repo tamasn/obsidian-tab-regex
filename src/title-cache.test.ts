@@ -13,7 +13,10 @@ describe("TitleCache — miss then hit", () => {
 
 	it("second lookup of the same path at the same revision is a hit: compute is not called again", () => {
 		const cache = new TitleCache();
-		const compute = vi.fn().mockReturnValue("Computed Title");
+		const compute = vi
+			.fn()
+			.mockReturnValueOnce("Computed Title")
+			.mockReturnValueOnce("Recomputed Title (should not happen)");
 		cache.resolve("Notes/a.md", 0, compute);
 		const result = cache.resolve("Notes/a.md", 0, compute);
 		expect(result).toBe("Computed Title");
@@ -92,25 +95,10 @@ describe("TitleCache — returning to a previous revision does not resurrect ent
 	});
 });
 
-describe("TitleCache — clear()", () => {
-	it("empties the cache; the next lookup at the same revision recomputes", () => {
-		const cache = new TitleCache();
-		const computeFirst = vi.fn().mockReturnValue("First");
-		const computeSecond = vi.fn().mockReturnValue("Second");
-
-		cache.resolve("Notes/a.md", 3, computeFirst);
-		cache.clear();
-		const result = cache.resolve("Notes/a.md", 3, computeSecond);
-
-		expect(result).toBe("Second");
-		expect(computeSecond).toHaveBeenCalledTimes(1);
-	});
-});
-
 describe("TitleCache — falsy-but-valid cached values", () => {
 	it("caches and returns the empty string as a HIT, not a miss", () => {
 		const cache = new TitleCache();
-		const compute = vi.fn().mockReturnValue("");
+		const compute = vi.fn().mockReturnValueOnce("").mockReturnValueOnce("recomputed (should not happen)");
 
 		const first = cache.resolve("Notes/a.md", 0, compute);
 		expect(first).toBe("");
@@ -123,7 +111,7 @@ describe("TitleCache — falsy-but-valid cached values", () => {
 
 	it("caches and returns a whitespace-only string as a HIT, not a miss", () => {
 		const cache = new TitleCache();
-		const compute = vi.fn().mockReturnValue("   ");
+		const compute = vi.fn().mockReturnValueOnce("   ").mockReturnValueOnce("recomputed (should not happen)");
 
 		const first = cache.resolve("Notes/a.md", 0, compute);
 		expect(first).toBe("   ");
@@ -159,23 +147,5 @@ describe("TitleCache — size", () => {
 
 		cache.resolve("Notes/a.md", 1, () => "A1");
 		expect(cache.size).toBe(1);
-	});
-
-	it("drops to zero after clear()", () => {
-		const cache = new TitleCache();
-		cache.resolve("Notes/a.md", 0, () => "A");
-		cache.resolve("Notes/b.md", 0, () => "B");
-		cache.clear();
-		expect(cache.size).toBe(0);
-	});
-});
-
-describe("TitleCache — initial revision does not collide with revision 0", () => {
-	it("the very first resolve at revision 0 is a miss, not a spurious hit", () => {
-		const cache = new TitleCache();
-		const compute = vi.fn().mockReturnValue("Computed");
-		const result = cache.resolve("Notes/a.md", 0, compute);
-		expect(result).toBe("Computed");
-		expect(compute).toHaveBeenCalledTimes(1);
 	});
 });

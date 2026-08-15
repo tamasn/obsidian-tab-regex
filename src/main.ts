@@ -23,11 +23,17 @@ export default class TabTitleRulesPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new TabTitleRulesSettingTab(this.app, this));
-		this.register(installTitlePatch(this));
+		const uninstallTitlePatch = installTitlePatch(this);
+		this.register(() => {
+			uninstallTitlePatch();
+			sweepWorkspace(this.app);
+		});
+		this.app.workspace.onLayoutReady(() => sweepWorkspace(this.app));
 		console.log("Tab Title Rules: loaded");
 	}
 
 	onunload() {
+		this.scheduleWorkspaceSweep.cancel();
 		console.log("Tab Title Rules: unloaded");
 	}
 
