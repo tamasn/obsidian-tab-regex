@@ -1,4 +1,4 @@
-import { Plugin } from "obsidian";
+import { debounce, Plugin, type Debouncer } from "obsidian";
 import {
 	bumpRevision,
 	createDefaultSettings,
@@ -6,17 +6,34 @@ import {
 	type TabTitleRulesSettings,
 } from "./rules";
 import { TabTitleRulesSettingTab } from "./settings-tab";
+import { installTitlePatch, sweepWorkspace } from "./tab-titles";
+import { TitleCache } from "./title-cache";
+
+const WORKSPACE_SWEEP_DEBOUNCE_MS = 400;
 
 export default class TabTitleRulesPlugin extends Plugin {
 	settings: TabTitleRulesSettings = createDefaultSettings();
+	titleCache = new TitleCache();
+	private scheduleWorkspaceSweep: Debouncer<[], void> = debounce(
+		() => sweepWorkspace(this.app),
+		WORKSPACE_SWEEP_DEBOUNCE_MS,
+		true
+	);
 
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new TabTitleRulesSettingTab(this.app, this));
+		const uninstallTitlePatch = installTitlePatch(this);
+		this.register(() => {
+			uninstallTitlePatch();
+			sweepWorkspace(this.app);
+		});
+		this.app.workspace.onLayoutReady(() => sweepWorkspace(this.app));
 		console.log("Tab Title Rules: loaded");
 	}
 
 	onunload() {
+		this.scheduleWorkspaceSweep.cancel();
 		console.log("Tab Title Rules: unloaded");
 	}
 
@@ -31,6 +48,7 @@ export default class TabTitleRulesPlugin extends Plugin {
 		// the live settings object in a state validateRule would reject.
 		this.settings = mergeSettings(bumpRevision(this.settings));
 		await this.saveData(this.settings);
+		this.scheduleWorkspaceSweep();
 	}
 
 	/**
