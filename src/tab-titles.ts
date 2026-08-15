@@ -26,11 +26,12 @@ export function sweepWorkspace(app: App): void {
 		// to a next-natural-redraw refresh instead of throwing if it ever disappears.
 		(leaf as { updateHeader?: () => void }).updateHeader?.();
 
-		// titleEl is likewise absent from FileView's public typings (only Modal
-		// declares it), but it is the same held node reference the view writes via
-		// `titleEl.setText(this.getDisplayText())` on file-load and again on rename.
-		// Scoped to FileView: other built-in views (backlinks, graph, search, ...)
-		// own their titleEl and refresh it independently of getDisplayText().
+		// titleEl is likewise absent from the public typings (only Modal declares it),
+		// but ItemView creates it (.view-header-title) and its load path seeds it once
+		// with `titleEl.setText(this.getDisplayText())`; nothing rewrites it afterwards
+		// except FileView on rename. Scoped to FileView because only
+		// FileView.prototype.getDisplayText is patched — no other view's title text can
+		// have changed, so re-setting it would be a no-op. Do not drop the guard.
 		if (leaf.view instanceof FileView) {
 			const view = leaf.view as FileView & { titleEl?: HTMLElement };
 			view.titleEl?.setText(view.getDisplayText());
@@ -38,7 +39,9 @@ export function sweepWorkspace(app: App): void {
 	});
 
 	// onLayoutChange() is not in the public typings but is what FileView.onRename
-	// itself calls to refresh the window title; it fans out to Workspace.updateTitle()
-	// and every popout window's updateTitle() via the layout-change handler.
+	// itself calls to pick up window titles. It is not cheap or title-scoped: it queues
+	// a frame-deferred requestUpdateLayout, and the resulting updateLayout() also fires
+	// requestSaveLayout(), requestResize() and a global "layout-change" broadcast — on
+	// every rule-edit burst. Weigh that before adding further sweep triggers.
 	(app.workspace as { onLayoutChange?: () => void }).onLayoutChange?.();
 }
