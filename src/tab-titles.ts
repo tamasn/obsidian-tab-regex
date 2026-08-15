@@ -27,9 +27,18 @@ export function sweepWorkspace(app: App): void {
 		(leaf as { updateHeader?: () => void }).updateHeader?.();
 
 		// titleEl is likewise absent from FileView's public typings (only Modal
-		// declares it), but it is the same held node reference the view sets once
-		// at file-load via `titleEl.setText(this.getDisplayText())`; updateHeader()
-		// never touches it, so without this the in-pane header goes stale.
-		(leaf.view as { titleEl?: HTMLElement }).titleEl?.setText(leaf.view.getDisplayText());
+		// declares it), but it is the same held node reference the view writes via
+		// `titleEl.setText(this.getDisplayText())` on file-load and again on rename.
+		// Scoped to FileView: other built-in views (backlinks, graph, search, ...)
+		// own their titleEl and refresh it independently of getDisplayText().
+		if (leaf.view instanceof FileView) {
+			const view = leaf.view as FileView & { titleEl?: HTMLElement };
+			view.titleEl?.setText(view.getDisplayText());
+		}
 	});
+
+	// onLayoutChange() is not in the public typings but is what FileView.onRename
+	// itself calls to refresh the window title; it fans out to Workspace.updateTitle()
+	// and every popout window's updateTitle() via the layout-change handler.
+	(app.workspace as { onLayoutChange?: () => void }).onLayoutChange?.();
 }
