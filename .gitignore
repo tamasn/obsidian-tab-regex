@@ -3,3 +3,5 @@ main.js
 *.js.map
 .DS_Store
 data.json
+.claude/worktrees/
+.claude/settings.local.json
