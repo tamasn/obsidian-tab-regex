@@ -63,7 +63,7 @@ describe("createRule", () => {
 
 	// Ties the "add rule" affordance to validateRule's empty-pattern rejection: a freshly
 	// added rule cannot be enabled until the user gives it a real pattern.
-	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	// gotcha: architecture/gotchas/2026-08-12-OTR-0002-coerced-placeholder-empty-pattern-matches-everything.md
 	it("cannot be enabled until given a real pattern — validateRule rejects the fresh rule", () => {
 		const result = validateRule(createRule());
 		expect(result.ok).toBe(false);

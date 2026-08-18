@@ -42,7 +42,7 @@ export function flagsOf(rule: Rule): string {
 }
 
 export function validateRule(rule: Rule): RuleValidation {
-	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	// gotcha: architecture/gotchas/2026-08-12-OTR-0002-coerced-placeholder-empty-pattern-matches-everything.md
 	// An empty pattern compiles to /(?:)/, matching every position, so an enabled empty-pattern
 	// rule always "matches" and suppresses the basename fallback. Reject here, at the single
 	// validation gate, so both entry points (the coerced placeholder and a fully-shaped
