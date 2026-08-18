@@ -74,15 +74,13 @@ export function runChain(vaultPath: string, rules: Rule[]): ChainTrace {
 			//
 			// No warning: this barrier's job is to not crash, not to diagnose, and the
 			// condition is already reported where it is actionable. sanitizeRule warns
-			// for a rule it finds still enabled-and-invalid and disables it in the same
-			// pass, so the debounced save that closes the live-edit window warns once and
-			// every later pass over that sanitized data is silent; while the user is
-			// still typing, the inline field error and the preview row's red "invalid"
-			// outcome are already showing it (the "warning" status re-evaluates only once
-			// focus leaves the field). Arrivals here are rare rather than hot: an
-			// uncached render driven from outside the plugin — a newly opened tab, a
-			// split, a workspace restore — during the pre-persist debounce window, once
-			// per enabled non-compiling rule.
+			// whenever it meets the rule still enabled-and-invalid, which the debounced
+			// saves do; and while the user is still typing, the pattern field's own
+			// inline error is showing it, on the same sub-page the edit is happening on.
+			// Arrivals here are rare rather than hot: an uncached render driven from
+			// outside the plugin — a newly opened tab, a split, a workspace restore —
+			// during the pre-persist debounce window, once per enabled non-compiling
+			// rule.
 			//
 			// Compile-only by design: an empty pattern compiles, so validateRule's
 			// rejection of it and buildPreview's pre-neutralization stay necessary.
