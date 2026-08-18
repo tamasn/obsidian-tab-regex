@@ -12,7 +12,8 @@ describe("TabTitleRulesPlugin.saveSettings", () => {
 	// can't reach saveData through this method, and the live plugin.settings matches what was
 	// persisted (checked via an independently cloned snapshot, not the same reference).
 	// savePreferences() (src/main.ts) also calls saveData() directly without mergeSettings and is
-	// deliberately left unpinned here — see the decision's "How to apply".
+	// deliberately left unpinned here: it is a separately-decided non-bumping write path, see
+	// architecture/decisions/2026-08-14-OTR-0003-sample-path-edits-use-non-bumping-savepreferences.md
 	it("re-runs stored settings through mergeSettings before persisting", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const plugin = new TabTitleRulesPlugin({} as App, {} as PluginManifest);
