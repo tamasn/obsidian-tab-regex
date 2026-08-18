@@ -62,9 +62,10 @@ export function validateRule(rule: Rule): RuleValidation {
 }
 
 /**
- * Sanitizes a single stored rule: an enabled rule whose pattern no longer
- * compiles is forced to enabled: false (never dropped) so the data survives
- * for a future UI to surface as broken, and a console.warn names it.
+ * Sanitizes a single stored rule: an enabled rule validateRule would reject —
+ * a pattern that does not compile, or the empty pattern, which compiles and
+ * matches everything — is forced to enabled: false (never dropped) so the data
+ * survives for the settings UI to surface as broken, and a console.warn names it.
  */
 function sanitizeRule(rule: Rule): Rule {
 	if (rule.enabled && !validateRule(rule).ok) {
@@ -99,7 +100,7 @@ function isRule(value: unknown): value is Rule {
  * Recovers a persisted rule element that failed `isRule`. Object-shaped
  * elements are coerced into a disabled placeholder (missing/mistyped fields
  * get safe defaults) so the data is never silently dropped, consistent with
- * sanitizeRule's never-drop policy for a rule that merely fails to compile.
+ * sanitizeRule's never-drop policy for a rule validateRule would reject.
  * Non-object elements (null, a bare string/number, an array, ...) carry
  * nothing worth keeping and are skipped.
  */
