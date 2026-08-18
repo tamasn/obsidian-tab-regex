@@ -7,7 +7,7 @@ export default defineConfig({
 	// The "obsidian" package is types-only ("main": ""), so src/main.ts and anything importing
 	// it are unresolvable under vitest without this. src/test-obsidian.ts stands in at run time.
 	resolve: {
-		alias: { obsidian: fileURLToPath(new URL("./src/test-obsidian.ts", import.meta.url)) },
+		alias: [{ find: /^obsidian$/, replacement: fileURLToPath(new URL("./src/test-obsidian.ts", import.meta.url)) }],
 	},
 	test: {
 		include: ["src/**/*.{test,spec}.?(c|m)[jt]s?(x)"],

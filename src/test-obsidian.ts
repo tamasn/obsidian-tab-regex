@@ -5,6 +5,11 @@
 // Deliberately implements only the surface those three files reach; not a general obsidian shim.
 // `debounce` returns a no-op debouncer so saveSettings()'s trailing scheduleWorkspaceSweep() call
 // does not attempt a real workspace sweep — this stub's remit is the save path, not the sweep.
+// Runtime values only: every other symbol those three files pull from "obsidian" (Debouncer,
+// WorkspaceLeaf, the SettingDefinition* types) is imported there as `import type`, so it is erased
+// before it ever reaches this module — declaring it here would be dead on arrival. tsconfig.json
+// also has no `paths` mapping for "obsidian", so tsc resolves those types from the real
+// node_modules/obsidian package, never from this stub.
 export class Plugin {
 	app: unknown;
 	constructor(app?: unknown) { this.app = app; }
@@ -19,12 +24,6 @@ export function debounce(_fn: () => void, _ms?: number, _immediate?: boolean) {
 	d.run = () => undefined;
 	return d;
 }
-export type Debouncer<A extends unknown[], V> = ((...args: A) => V) & { cancel: () => unknown; run: () => unknown };
 export class App {}
 export class PluginSettingTab { constructor(_app?: unknown, _plugin?: unknown) {} display(): void {} }
 export class FileView {}
-export interface WorkspaceLeaf { [k: string]: unknown }
-export interface SettingDefinitionItem { [k: string]: unknown }
-export interface SettingDefinitionList { [k: string]: unknown }
-export interface SettingDefinitionPage { [k: string]: unknown }
-export interface SettingDefinitionRender { [k: string]: unknown }
