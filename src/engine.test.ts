@@ -269,6 +269,34 @@ describe("runChain — anti-drift sensor against applyRules", () => {
 				expected: " ",
 				expectedFallback: false,
 			},
+			{
+				label: "treats an enabled non-compiling rule as a no-op and keeps chaining",
+				vaultPath: "note.md",
+				rules: [
+					makeRule({ pattern: "([unclosed", replacement: "X" }),
+					makeRule({ pattern: "note", replacement: "draft" }),
+				],
+				expected: "draft",
+				expectedFallback: false,
+			},
+			{
+				label:
+					"treats an enabled non-compiling rule as a no-op when it comes after a matched rule (accumulator survives)",
+				vaultPath: "note.md",
+				rules: [
+					makeRule({ pattern: "note", replacement: "draft" }),
+					makeRule({ pattern: "([unclosed", replacement: "X" }),
+				],
+				expected: "draft",
+				expectedFallback: false,
+			},
+			{
+				label: "falls back to the basename when the only enabled rule does not compile",
+				vaultPath: "Projects/Client/index.md",
+				rules: [makeRule({ pattern: "([unclosed" })],
+				expected: basenameOf("Projects/Client/index.md"),
+				expectedFallback: true,
+			},
 		];
 
 		for (const { label, vaultPath, rules, expected, expectedFallback } of cases) {
@@ -321,6 +349,58 @@ describe("runChain — per-step outcome", () => {
 		const trace = runChain("note.md", [rule]);
 		expect(trace.steps[0].outcome).toBe("applied");
 	});
+});
+
+describe("runChain — enabled rule whose pattern does not compile", () => {
+	it("does not throw when an enabled rule's pattern does not compile", () => {
+		expect(() =>
+			runChain("note.md", [makeRule({ pattern: "([unclosed" })])
+		).not.toThrow();
+		expect(() =>
+			applyRules("note.md", [makeRule({ pattern: "([unclosed" })])
+		).not.toThrow();
+	});
+
+	it("records the step as invalid, passing the accumulator through unchanged", () => {
+		const rule = makeRule({ pattern: "([unclosed", replacement: "X" });
+		const trace = runChain("note.md", [rule]);
+		expect(trace.steps[0].outcome).toBe("invalid");
+		expect(trace.steps[0].before).toBe("note");
+		expect(trace.steps[0].after).toBe("note");
+		expect(trace.steps[0].index).toBe(0);
+	});
+
+	it("distinguishes a non-compiling enabled rule from the same rule disabled", () => {
+		const invalidEnabled = makeRule({ pattern: "([unclosed", replacement: "X", enabled: true });
+		const invalidDisabled = makeRule({ pattern: "([unclosed", replacement: "X", enabled: false });
+		const trace = runChain("note.md", [invalidEnabled, invalidDisabled]);
+		expect(trace.steps[0].outcome).toBe("invalid");
+		expect(trace.steps[1].outcome).toBe("disabled");
+	});
+
+	it("uses the basename fallback when the only enabled rule does not compile", () => {
+		const invalid = makeRule({ pattern: "([unclosed" });
+		const trace = runChain("Projects/Client/index.md", [invalid]);
+		expect(trace.usedFallback).toBe(true);
+		expect(trace.result).toBe("index");
+	});
+
+	it(
+		// Boundary sensor: an empty pattern compiles fine (to /(?:)/, which matches everywhere),
+		// so it does NOT take the "invalid" path — this guard is compile-only. Rejecting an empty
+		// pattern is deliberately NOT this guard's job: validateRule (in src/rules.ts) rejects it
+		// at the save-time gate, and buildPreview (in src/preview.ts) is the preview-time defense.
+		// Pinned deliberately so a future change that widens this guard to also catch the empty
+		// pattern does not silently collide with those two defenses.
+		"does not treat an empty pattern as a compile failure (the guard is compile-only)",
+		() => {
+			const rule = makeRule({ pattern: "" });
+			const trace = runChain("note.md", [rule]);
+			expect(trace.steps[0].outcome).toBe("applied");
+			expect(trace.result).toBe("bnote");
+			expect(trace.usedFallback).toBe(false);
+		}
+	);
 });
 
 describe("runChain — step before/after", () => {
