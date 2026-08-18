@@ -132,11 +132,13 @@ function coerceRule(value: unknown, index: number): Rule | null {
 /**
  * Merges persisted (untrusted) data over a fresh default settings object.
  * Pure and Obsidian-free so it is directly testable: this is the integrity
- * gate that disables any enabled rule whose pattern doesn't compile, on both
- * load and save — it is not something applyRules() relies on, since
- * runChain's own compile guard tolerates a non-compiling enabled rule
- * regardless. The save-side counterpart is validateRule, invoked from the
- * not-yet-built settings UI.
+ * gate that disables any enabled rule validateRule would reject, on both load
+ * and save. That is wider than "doesn't compile" — an empty pattern compiles
+ * and matches everything, and this gate disables it too. It is not something
+ * applyRules() relies on, since runChain's own compile guard tolerates a
+ * non-compiling enabled rule regardless; that guard is compile-only, so it
+ * does not cover the empty-pattern half. The same check runs early, per
+ * keystroke, in the settings UI, which calls validateRule directly.
  */
 export function mergeSettings(raw: unknown): TabTitleRulesSettings {
 	const merged = createDefaultSettings();
