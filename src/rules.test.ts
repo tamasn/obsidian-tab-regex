@@ -34,7 +34,7 @@ describe("validateRule", () => {
 		}
 	});
 
-	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	// gotcha: architecture/gotchas/2026-08-12-OTR-0002-coerced-placeholder-empty-pattern-matches-everything.md
 	it("rejects an empty pattern with a non-empty error message", () => {
 		const result = validateRule(makeRule({ pattern: "" }));
 		expect(result.ok).toBe(false);
@@ -172,7 +172,7 @@ describe("mergeSettings", () => {
 
 	// A fully-shaped rule with pattern: "" passes isRule and never reaches coerceRule;
 	// sanitizeRule is the only gate left, so it must ask validateRule to reject it.
-	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	// gotcha: architecture/gotchas/2026-08-12-OTR-0002-coerced-placeholder-empty-pattern-matches-everything.md
 	it("force-disables a fully-shaped, enabled rule whose pattern is the empty string, keeping it in the array", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const emptyPattern = makeRule({ pattern: "", replacement: "", enabled: true });
@@ -226,7 +226,7 @@ describe("mergeSettings — migration pin: adding a required Rule field must not
 	// requires every field and routes any mismatch to coerceRule, which force-disables the rule,
 	// so adding a required field to Rule without updating isRule/coerceRule would silently disable
 	// every rule already saved by a user on upgrade.
-	// gotcha: architecture/gotchas/2026-08-12-work-isrule-required-field-disables-all-stored-rules.md
+	// gotcha: architecture/gotchas/2026-08-12-OTR-0002-isrule-required-field-disables-all-stored-rules.md
 	it("a stored rule in today's six-field shape passes isRule and survives mergeSettings untouched, enabled preserved", () => {
 		const stored = {
 			id: "stored-1",
@@ -244,7 +244,7 @@ describe("mergeSettings — migration pin: adding a required Rule field must not
 });
 
 describe("mergeSettings + applyRules — load boundary for an enabled empty-pattern rule", () => {
-	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	// gotcha: architecture/gotchas/2026-08-12-OTR-0002-coerced-placeholder-empty-pattern-matches-everything.md
 	it("an enabled empty-pattern rule no longer suppresses the basename fallback after passing through mergeSettings", () => {
 		const emptyPattern = makeRule({ pattern: "", replacement: "", enabled: true });
 		const settings = mergeSettings({ rules: [emptyPattern] });

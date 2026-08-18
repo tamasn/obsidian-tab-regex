@@ -25,7 +25,7 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
 /**
  * A freshly added rule starts disabled with an empty pattern, so it cannot be
  * enabled until the user supplies a real pattern — validateRule rejects an
- * empty pattern (gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md).
+ * empty pattern (gotcha: architecture/gotchas/2026-08-12-OTR-0002-coerced-placeholder-empty-pattern-matches-everything.md).
  * No `obsidian` import here: this module stays plain-TypeScript so it is
  * directly unit-testable.
  */

@@ -18,7 +18,7 @@ describe("buildPreview — invalid rules", () => {
 		expect(preview.result).toBe("final");
 	});
 
-	// gotcha: architecture/gotchas/2026-08-12-work-coerced-placeholder-empty-pattern-matches-everything.md
+	// gotcha: architecture/gotchas/2026-08-12-OTR-0002-coerced-placeholder-empty-pattern-matches-everything.md
 	it("reports an empty pattern as invalid, matching validateRule's rejection", () => {
 		const emptyPattern = makeRule({ pattern: "" });
 		const preview = buildPreview("note.md", [emptyPattern]);
