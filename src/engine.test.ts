@@ -388,8 +388,8 @@ describe("runChain — enabled rule whose pattern does not compile", () => {
 	it(
 		// Boundary sensor: an empty pattern compiles fine (to /(?:)/, which matches everywhere),
 		// so it does NOT take the "invalid" path — this guard is compile-only. Rejecting an empty
-		// pattern is deliberately NOT this guard's job: validateRule (src/rules.ts:50-52) rejects it
-		// at the save-time gate, and buildPreview (src/preview.ts:37-40) is the preview-time defense.
+		// pattern is deliberately NOT this guard's job: validateRule (in src/rules.ts) rejects it
+		// at the save-time gate, and buildPreview (in src/preview.ts) is the preview-time defense.
 		// Pinned deliberately so a future change that widens this guard to also catch the empty
 		// pattern does not silently collide with those two defenses.
 		"does not treat an empty pattern as a compile failure (the guard is compile-only)",
