@@ -72,14 +72,17 @@ export function runChain(vaultPath: string, rules: Rule[]): ChainTrace {
 			// rule is indistinguishable from a rule that ran and did not match for the
 			// usedFallback computation below (usedFallback = !matched || acc === "").
 			//
-			// No warning: this is the tab-title hot path, reached once per uncached
-			// render, so a log here would repeat without bound through a single burst of
-			// pattern edits, for no new information. The condition is already reported
-			// where it is actionable — sanitizeRule warns for a rule it finds still
-			// enabled-and-invalid and disables it in the same pass, so the debounced save
-			// that closes the live-edit window warns once and every later pass over that
-			// sanitized data is silent; and the settings UI is showing the same rule
-			// through its field error, its "warning" status, and the red preview row.
+			// No warning: this barrier's job is to not crash, not to diagnose, and the
+			// condition is already reported where it is actionable. sanitizeRule warns
+			// for a rule it finds still enabled-and-invalid and disables it in the same
+			// pass, so the debounced save that closes the live-edit window warns once and
+			// every later pass over that sanitized data is silent; while the user is
+			// still typing, the inline field error and the preview row's red "invalid"
+			// outcome are already showing it (the "warning" status re-evaluates only once
+			// focus leaves the field). Arrivals here are rare rather than hot: an
+			// uncached render driven from outside the plugin — a newly opened tab, a
+			// split, a workspace restore — during the pre-persist debounce window, once
+			// per enabled non-compiling rule.
 			//
 			// Compile-only by design: an empty pattern compiles, so validateRule's
 			// rejection of it and buildPreview's pre-neutralization stay necessary.
