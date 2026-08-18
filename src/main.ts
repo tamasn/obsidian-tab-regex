@@ -56,8 +56,12 @@ export default class TabTitleRulesPlugin extends Plugin {
 	 * whole-workspace tab-title cache-invalidation trigger, so routing a cosmetic
 	 * sample-path edit through it would invalidate every cached title on each
 	 * keystroke. Rule mutations keep using saveSettings(); sample-path edits use this.
+	 * Sanitization still applies: this funnels through mergeSettings like every other
+	 * read and write path, only the revision bump is skipped.
 	 */
+	// decision: architecture/decisions/2026-08-18-OTR-0009-savepreferences-sanitizes-without-bumping.md
 	async savePreferences() {
+		this.settings = mergeSettings(this.settings);
 		await this.saveData(this.settings);
 	}
 }
