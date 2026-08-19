@@ -2,37 +2,19 @@ import { App, PluginSettingTab } from "obsidian";
 import type {
 	SettingDefinitionItem,
 	SettingDefinitionList,
-	SettingDefinitionPage,
 	SettingDefinitionRender,
 } from "obsidian";
-import { DEFAULT_SAMPLE_PATH, flagsOf, validateRule, type Rule } from "./rules";
-import { createRule, moveItem } from "./rule-ops";
+import { DEFAULT_SAMPLE_PATH, validateRule, type Rule } from "./rules";
+import { applyRuleEnabled, createRule, moveItem, replaceRuleById } from "./rule-ops";
+import { formatRuleSummary, ruleRowLabel } from "./rule-format";
+import { RuleEditModal } from "./rule-modal";
 import { buildPreview, type Preview } from "./preview";
 import type TabTitleRulesPlugin from "./main";
 
 const RULES_PERSIST_DEBOUNCE_MS = 400;
 const SAMPLE_PERSIST_DEBOUNCE_MS = 400;
 const PREVIEW_RENDER_DEBOUNCE_MS = 200;
-const DEFINITIONS_UPDATE_DEBOUNCE_MS = 400;
-
-type RuleField = "name" | "pattern" | "replacement" | "global" | "ignoreCase" | "enabled";
-
-const RULE_KEY_PREFIX = "rule:";
-
-function ruleControlKey(ruleId: string, field: RuleField): string {
-	return `${RULE_KEY_PREFIX}${ruleId}:${field}`;
-}
-
-function parseRuleControlKey(key: string): { ruleId: string; field: RuleField } | undefined {
-	if (!key.startsWith(RULE_KEY_PREFIX)) return undefined;
-	const rest = key.slice(RULE_KEY_PREFIX.length);
-	const separatorIndex = rest.lastIndexOf(":");
-	if (separatorIndex === -1) return undefined;
-	return {
-		ruleId: rest.slice(0, separatorIndex),
-		field: rest.slice(separatorIndex + 1) as RuleField,
-	};
-}
+const UPDATE_RETRY_MS = 400;
 
 export class TabTitleRulesSettingTab extends PluginSettingTab {
 	plugin: TabTitleRulesPlugin;
@@ -40,10 +22,11 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	private rulesPersistTimer: number | undefined;
 	private samplePersistTimer: number | undefined;
 	private previewRenderTimer: number | undefined;
-	private definitionsUpdateTimer: number | undefined;
+	private updateRetryTimer: number | undefined;
 	private previewOutputEl: HTMLElement | undefined;
 	private previewSignature: string | undefined;
 	private previewCache: Preview | undefined;
+	private activeRuleModal: RuleEditModal | undefined;
 
 	constructor(app: App, plugin: TabTitleRulesPlugin) {
 		super(app, plugin);
@@ -54,104 +37,20 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		return [this.buildRulesListDefinition(), this.buildPreviewDefinition()];
 	}
 
-	getControlValue(key: string): unknown {
-		const parsed = parseRuleControlKey(key);
-		if (parsed === undefined) return super.getControlValue(key);
-		const rule = this.findRule(parsed.ruleId);
-		if (rule === undefined) return undefined;
-		switch (parsed.field) {
-			case "name":
-				return rule.name ?? "";
-			case "pattern":
-				return rule.pattern;
-			case "replacement":
-				return rule.replacement;
-			case "global":
-				return rule.global;
-			case "ignoreCase":
-				return rule.ignoreCase;
-			case "enabled":
-				return rule.enabled;
-			default:
-				return undefined;
-		}
-	}
-
-	setControlValue(key: string, value: unknown): void {
-		const parsed = parseRuleControlKey(key);
-		if (parsed === undefined) {
-			// Base impl mutates and persists plugin settings and may reject; a bare
-			// `void` would drop that as an unhandled rejection.
-			Promise.resolve(super.setControlValue(key, value)).catch((error: unknown) => {
-				console.error("obsidian-tab-regex: setControlValue failed", key, error);
-			});
-			return;
-		}
-		const index = this.plugin.settings.rules.findIndex((rule) => rule.id === parsed.ruleId);
-		if (index === -1) return;
-		const rule = this.plugin.settings.rules[index];
-
-		let nextRule: Rule;
-		switch (parsed.field) {
-			case "name": {
-				const name = typeof value === "string" ? value : "";
-				nextRule = { ...rule, name: name === "" ? undefined : name };
-				break;
-			}
-			case "pattern":
-				nextRule = { ...rule, pattern: typeof value === "string" ? value : rule.pattern };
-				break;
-			case "replacement":
-				nextRule = { ...rule, replacement: typeof value === "string" ? value : rule.replacement };
-				break;
-			case "global":
-				nextRule = { ...rule, global: Boolean(value) };
-				break;
-			case "ignoreCase":
-				nextRule = { ...rule, ignoreCase: Boolean(value) };
-				break;
-			case "enabled": {
-				// Save-side integrity gate: mirrors the toggle's own `disabled` predicate so
-				// any write path that bypasses the DOM (keyboard activation, a future
-				// framework change, ...) still can't enable an invalid-pattern rule.
-				const enabled = Boolean(value);
-				if (enabled && !this.isRuleValid(parsed.ruleId)) {
-					// Reject without mutating. The toggle may already have flipped
-					// optimistically (e.g. keyboard activation bypassing its own
-					// `disabled` predicate); resyncing its displayed value needs a
-					// re-render — getControlValue() is only re-read on render, and
-					// refreshDomState() only re-evaluates `visible`/`disabled` predicates,
-					// it cannot touch a control's value. Route through the same debounced,
-					// focus-aware scheduler used for list-entry refresh.
-					this.scheduleDefinitionsUpdate();
-					return;
-				}
-				nextRule = { ...rule, enabled };
-				break;
-			}
-			default:
-				return;
-		}
-
-		const rules = [...this.plugin.settings.rules];
-		rules[index] = nextRule;
-		this.commitRules(rules);
-
-		if (parsed.field === "pattern" || parsed.field === "global" || parsed.field === "ignoreCase") {
-			this.refreshDomState();
-		}
-		// Per obsidian.d.ts, SettingDefinitionPage.displayValue and .status carry only
-		// "call update() to refresh" — unlike `disabled`/`visible`, they are not
-		// re-evaluated on render. `name` is a plain `string` snapshotted when
-		// buildRulePage() runs. All three (used here via summarizeRule/isRuleValid/name)
-		// go stale without a rebuild, so every field schedules one; the focus-aware
-		// deferral in scheduleDefinitionsUpdate() keeps that from stealing focus/caret
-		// while a text control is active.
-		this.scheduleDefinitionsUpdate();
-		this.schedulePreviewRefresh();
-	}
-
 	hide(): void {
+		// Close any open rule modal before the timer clears below. Suppress its close
+		// callback first: Modal.close() dispatches the callback synchronously on desktop
+		// but, on phone, only after an async animateClose().then(...), so it can fire
+		// after this method has already returned and call requestUpdate() on a torn-down
+		// tab, re-entering buildPreviewDefinition().render against a detached div. A
+		// no-op callback (rather than null — the real Modal.setCloseCallback signature is
+		// non-nullable, `callback: () => any`, so passing null fails strict typecheck)
+		// takes the place of Obsidian's own null-callback idiom for a programmatic close.
+		const modal = this.activeRuleModal;
+		this.activeRuleModal = undefined;
+		modal?.setCloseCallback(() => {});
+		modal?.close();
+
 		// Flush once: saveSettings() and savePreferences() write the identical settings
 		// object, so firing both back to back is a redundant, unserialized double write.
 		// saveSettings() also bumps the revision, so it takes priority when both timers
@@ -175,9 +74,9 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		// torn down — display() rebuilds getSettingDefinitions() from scratch on next open
 		// regardless, so calling update() here would only re-enter the (also-tearing-down)
 		// preview render callback for no visible benefit.
-		if (this.definitionsUpdateTimer !== undefined) {
-			window.clearTimeout(this.definitionsUpdateTimer);
-			this.definitionsUpdateTimer = undefined;
+		if (this.updateRetryTimer !== undefined) {
+			window.clearTimeout(this.updateRetryTimer);
+			this.updateRetryTimer = undefined;
 		}
 		if (this.previewRenderTimer !== undefined) {
 			window.clearTimeout(this.previewRenderTimer);
@@ -193,145 +92,159 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		return {
 			type: "list",
 			heading: "Rules",
-			items: this.plugin.settings.rules.map((rule) => this.buildRulePage(rule)),
+			items: this.plugin.settings.rules.map((rule) => this.buildRuleRowDefinition(rule)),
 			emptyState: "No rules defined yet. Use the + button to add one.",
 			onReorder: (oldIndex, newIndex) => {
-				// moveItem uses the after-removal convention for `newIndex`; unconfirmed
-				// against Obsidian's actual drag behavior, see task notes.
+				// moveItem uses the after-removal convention for `newIndex`, confirmed
+				// against Obsidian's own array move (decompiled): Kd(e,t,n){i=e[t];
+				// e.splice(t,1); e.splice(n,0,i)} — identical logic — whose internal
+				// consumers pass onReorder's raw arguments straight in.
 				this.commitRules(moveItem(this.plugin.settings.rules, oldIndex, newIndex));
 				this.schedulePreviewRefresh();
-				this.update();
+				this.requestUpdate();
 			},
 			onDelete: (index) => {
 				const rules = [...this.plugin.settings.rules];
 				rules.splice(index, 1);
 				this.commitRules(rules);
 				this.schedulePreviewRefresh();
-				this.update();
+				this.requestUpdate();
 			},
 			addItem: {
 				name: "Add rule",
 				action: () => {
 					this.commitRules([...this.plugin.settings.rules, createRule()]);
 					this.schedulePreviewRefresh();
-					this.update();
+					this.requestUpdate();
 				},
 			},
 		};
 	}
 
-	private buildRulePage(rule: Rule): SettingDefinitionPage {
+	/**
+	 * Keyed by `rule.id` (not the display name or position): the framework
+	 * keys a non-`control` list item by name when present, which collides
+	 * whenever two rules are unnamed (the default after pressing + twice) and
+	 * logs a duplicate-key warning on every render; a positional key loses
+	 * identity across a reorder or delete, misdirecting focus to the wrong
+	 * row. An id key lets the reconciler move the existing DOM node to follow
+	 * the rule instead. `searchable: false` keeps the id out of the settings
+	 * search index, matching Obsidian's own reorderable lists.
+	 */
+	private buildRuleRowDefinition(rule: Rule): SettingDefinitionRender {
 		return {
-			type: "page",
-			name: rule.name || rule.pattern || "New rule",
-			displayValue: () => this.summarizeRule(rule.id),
-			status: () => (this.isRuleValid(rule.id) ? null : "warning"),
-			items: [
-				{
-					name: "Name",
-					desc: "Optional label shown in the rule list.",
-					control: {
-						type: "text",
-						key: ruleControlKey(rule.id, "name"),
-						placeholder: "Rule name",
-					},
-				},
-				{
-					name: "Pattern",
-					desc: "Regular expression tested against the path (extension stripped).",
-					control: {
-						type: "text",
-						key: ruleControlKey(rule.id, "pattern"),
-						placeholder: "e.g. ^Projects/(.+)$",
-						validate: (value) => {
-							const current = this.findRule(rule.id);
-							if (current === undefined) return undefined;
-							const result = validateRule({ ...current, pattern: value });
-							return result.ok ? undefined : result.error;
-						},
-					},
-				},
-				{
-					name: "Replacement",
-					desc: "Replacement text; may reference capture groups ($1, $2, ...).",
-					control: {
-						type: "text",
-						key: ruleControlKey(rule.id, "replacement"),
-					},
-				},
-				{
-					name: "Global (g)",
-					desc: "Replace every match instead of only the first.",
-					control: {
-						type: "toggle",
-						key: ruleControlKey(rule.id, "global"),
-					},
-				},
-				{
-					name: "Ignore case (i)",
-					desc: "Match without regard to letter case.",
-					control: {
-						type: "toggle",
-						key: ruleControlKey(rule.id, "ignoreCase"),
-					},
-				},
-				{
-					name: "Enabled",
-					desc: "Include this rule in the chain. Locked while the pattern is invalid.",
-					control: {
-						type: "toggle",
-						key: ruleControlKey(rule.id, "enabled"),
-						disabled: () => !this.isRuleValid(rule.id),
-					},
-				},
-			],
+			name: rule.id,
+			desc: formatRuleSummary(rule),
+			searchable: false,
+			render: (setting) => {
+				// Re-resolve by the captured id, never the captured `rule` object:
+				// savePreferences() deliberately leaves this.settings unsanitised, so
+				// validity must be read live off the current array.
+				const current = this.findRule(rule.id);
+				if (current === undefined) return;
+
+				// Mandatory: the framework has already called setName(rule.id) (the
+				// definition's `name` doubles as its key), so the row must be told its
+				// human-readable label explicitly.
+				setting.setName(ruleRowLabel(current));
+				setting.setClass("ttr-rule-row");
+
+				const valid = validateRule(current).ok;
+
+				setting.addDisplayValue((c) =>
+					c.setValue(valid ? null : "Invalid pattern").setStatus(valid ? null : "warning")
+				);
+
+				setting.addToggle((toggle) => {
+					// setValue before onChange, per rule-modal.ts's toggle warning:
+					// ToggleComponent.setValue fires onChange.
+					toggle.setValue(current.enabled);
+					toggle.setDisabled(!valid);
+					toggle.onChange((next) => this.setRuleEnabled(rule.id, next));
+				});
+
+				setting.addExtraButton((button) => {
+					button.setIcon("lucide-pencil");
+					button.setTooltip("Edit rule");
+					button.onClick(() => this.openRuleEditor(rule.id));
+				});
+
+				// No cleanup returned: everything created above lives inside `setting`,
+				// which the reconciler clear()s before re-render and drops on removal.
+				// A cleanup would only be needed for a node created outside the row
+				// (as buildPreviewDefinition() does with group.listEl.createDiv) or a
+				// tab-level registration.
+			},
 		};
+	}
+
+	private openRuleEditor(id: string): void {
+		const rule = this.findRule(id);
+		if (rule === undefined) return;
+		const modal = new RuleEditModal(this.app, rule, (next) => {
+			const updated = replaceRuleById(this.plugin.settings.rules, id, next);
+			if (updated === null) return;
+			this.commitRules(updated);
+			this.schedulePreviewRefresh();
+		});
+		modal.setCloseCallback(() => {
+			this.activeRuleModal = undefined;
+			this.requestUpdate();
+		});
+		this.activeRuleModal = modal;
+		modal.open();
+	}
+
+	/**
+	 * Re-resolves the rule and rejects the enable without mutating if it is
+	 * invalid — the toggle's `disabled` state is frozen at render time, and
+	 * the underlying rule can move between render and click (a debounced
+	 * saveSettings re-merge adopting a sanitised rule, or a modal commit
+	 * landing). mergeSettings remains the authoritative gate; this is a
+	 * best-effort resync. The reject path calls requestUpdate() rather than
+	 * toggle.setValue(false), which would re-enter onChange. The success path
+	 * does not call requestUpdate(): no row surface depends on `enabled` (the
+	 * label and desc key off name/pattern, the display value keys off
+	 * validity, and the toggle has already flipped itself), so rebuilding the
+	 * row would only drop focus off the checkbox the user just activated.
+	 */
+	private setRuleEnabled(id: string, next: boolean): void {
+		const result = applyRuleEnabled(this.plugin.settings.rules, id, next);
+		if (result.kind === "not-found") return;
+		if (result.kind === "rejected") {
+			this.requestUpdate();
+			return;
+		}
+		this.commitRules(result.rules);
+		this.schedulePreviewRefresh();
 	}
 
 	private findRule(id: string): Rule | undefined {
 		return this.plugin.settings.rules.find((rule) => rule.id === id);
 	}
 
-	private isRuleValid(id: string): boolean {
-		const rule = this.findRule(id);
-		return rule !== undefined && validateRule(rule).ok;
-	}
-
-	private summarizeRule(id: string): string {
-		const rule = this.findRule(id);
-		if (rule === undefined) return "";
-		// SettingDefinitionPage has no control slot on the list entry itself, so fold
-		// enabled state into the one text surface the entry exposes.
-		const offPrefix = rule.enabled ? "" : "(off) ";
-		return `${offPrefix}/${rule.pattern}/${flagsOf(rule)} → ${rule.replacement}`;
-	}
-
 	/**
-	 * Debounced update(), triggered by every field edit (see call sites in
-	 * setControlValue(), including the enabled-toggle reject path). Per obsidian.d.ts,
-	 * `displayValue`/`status`/`name` on SettingDefinitionPage all require update() to
-	 * refresh — none re-evaluate on render the way `disabled`/`visible` do — so any
-	 * field's edit can leave the list entry stale. update() re-renders the definitions
-	 * structurally, so calling it while a text control has focus would steal that focus
-	 * (and the caret, mid-edit). The timer callback defers rather than firing whenever
-	 * the active element is a text-entry control inside this tab's containerEl, and
-	 * reschedules itself so the pending update is never dropped, only postponed — it
-	 * lands the moment focus leaves the field, which is necessarily before the user can
-	 * navigate back to the list and see a stale entry. Not flushed in hide() — see there
-	 * for why (a fresh display() rebuilds definitions from scratch regardless).
+	 * Runs update() synchronously unless a text-entry control inside this
+	 * tab currently has focus, in which case it retries on a short timer
+	 * instead of updating immediately — re-checking focus each time — so the
+	 * pending update is deferred, never dropped. With the per-rule fields
+	 * moved into a modal there is nothing left to coalesce (the 400ms
+	 * debounce this replaces existed to coalesce per-keystroke refreshes of
+	 * a page row's displayValue/status/name); the only thing left to defer
+	 * against is the sample-path text field.
 	 */
-	private scheduleDefinitionsUpdate(): void {
-		if (this.definitionsUpdateTimer !== undefined) {
-			window.clearTimeout(this.definitionsUpdateTimer);
-		}
-		this.definitionsUpdateTimer = window.setTimeout(() => {
-			if (this.isTextEntryFocused()) {
-				this.scheduleDefinitionsUpdate();
-				return;
+	private requestUpdate(): void {
+		if (this.isTextEntryFocused()) {
+			if (this.updateRetryTimer !== undefined) {
+				window.clearTimeout(this.updateRetryTimer);
 			}
-			this.definitionsUpdateTimer = undefined;
-			this.update();
-		}, DEFINITIONS_UPDATE_DEBOUNCE_MS);
+			this.updateRetryTimer = window.setTimeout(() => {
+				this.updateRetryTimer = undefined;
+				this.requestUpdate();
+			}, UPDATE_RETRY_MS);
+			return;
+		}
+		this.update();
 	}
 
 	/**
@@ -418,7 +331,7 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 					}:${rule.enabled ? 1 : 0}`
 			)
 			.join("|");
-		return `${sample}\u0000${rulesSignature}`;
+		return `${sample}\0${rulesSignature}`;
 	}
 
 	private getPreview(): Preview {
@@ -462,7 +375,7 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		const stepsEl = el.createDiv({ cls: "ttr-preview-steps" });
 		for (const row of preview.rows) {
 			const rule = this.plugin.settings.rules[row.index];
-			const label = rule?.name || rule?.pattern || `Rule ${row.index + 1}`;
+			const label = rule !== undefined ? ruleRowLabel(rule) : `Rule ${row.index + 1}`;
 			const stepEl = stepsEl.createDiv({
 				cls: `ttr-preview-step ttr-preview-step-${row.outcome}`,
 			});

@@ -69,3 +69,27 @@
 	color: var(--text-error);
 	font-weight: var(--font-medium);
 }
+
+.ttr-rule-row .setting-item-description {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ttr-rule-row .setting-item-value {
+	color: var(--text-error);
+	font-size: var(--font-ui-smaller);
+}
+
+.ttr-rule-row .setting-item-value:empty {
+	display: none;
+}
+
+.ttr-rule-modal .setting-item {
+	padding-top: 0.5em;
+	padding-bottom: 0.5em;
+	border-top: none;
+}
