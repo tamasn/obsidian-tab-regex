@@ -73,27 +73,33 @@ describe("createRule", () => {
 
 describe("applyRuleEnabled", () => {
 	// architecture/constitution.md, "validateRule is the only pattern-acceptability gate":
-	// this is settings-tab.ts's re-implementation of the enable-integrity gate the deleted
-	// setControlValue used to host — never enable a rule whose pattern does not validate.
+	// applyRuleEnabled (rule-ops.ts) is itself the enable-integrity gate — settings-tab.ts's
+	// setRuleEnabled calls it as a best-effort resync, while mergeSettings remains the
+	// authoritative gate on the save path — never enable a rule whose pattern does not validate.
 	// Disabling is always allowed, since an invalid rule must stay reachable to disable
 	// (gotcha: architecture/gotchas/2026-08-18-OTR-0006-savepreferences-bypasses-the-mergesettings-integrity-gate.md
 	// records that this.settings can legitimately hold an enabled non-compiling rule mid-edit).
 	it("gates enabling on validity, always allows disabling, and is a no-op for a missing id", () => {
 		const validRule = makeRule({ pattern: "ok", enabled: false });
-		const invalidRule = makeRule({ pattern: "(", enabled: true });
+		// Split disabled/enabled, rather than one shared invalidRule: the "rejected" case below
+		// starts disabled so a reject path that wrongly flips `enabled` to true in place is a
+		// real, sensed value change — starting it already enabled (the value the reject-path bug
+		// would also write) would make that mutation invisible to before/after equality.
+		const disabledInvalidRule = makeRule({ pattern: "(", enabled: false });
+		const enabledInvalidRule = makeRule({ pattern: "(", enabled: true });
 
 		const cases = [
 			{
 				label: "enabling an invalid rule is rejected without mutating",
-				rules: [invalidRule],
-				id: invalidRule.id,
+				rules: [disabledInvalidRule],
+				id: disabledInvalidRule.id,
 				next: true,
 				expectedKind: "rejected" as const,
 			},
 			{
 				label: "disabling an invalid rule is allowed",
-				rules: [invalidRule],
-				id: invalidRule.id,
+				rules: [enabledInvalidRule],
+				id: enabledInvalidRule.id,
 				next: false,
 				expectedKind: "applied" as const,
 			},
@@ -114,14 +120,18 @@ describe("applyRuleEnabled", () => {
 		];
 
 		for (const { label, rules, id, next, expectedKind } of cases) {
-			const before = [...rules];
+			// Deep-cloned, not a shallow `[...rules]` copy: a shallow copy shares the same
+			// element references as `rules`, so an in-place mutation of an element mutates
+			// this "before" snapshot too and the toEqual below can never see it. applyRuleEnabled
+			// always returns a copy on every branch (applied, rejected, not-found), so the input
+			// array must come out identical to this independent snapshot regardless of outcome.
+			const before = structuredClone(rules);
 			const result = applyRuleEnabled(rules, id, next);
 			expect(result.kind, label).toBe(expectedKind);
+			expect(rules, label).toEqual(before);
 			if (result.kind === "applied") {
 				const updated = result.rules.find((rule) => rule.id === id);
 				expect(updated?.enabled, label).toBe(next);
-			} else {
-				expect(rules, label).toEqual(before);
 			}
 		}
 	});

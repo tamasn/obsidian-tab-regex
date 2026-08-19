@@ -91,7 +91,7 @@ describe("rulePatternError", () => {
 	});
 
 	it("rejects a non-compiling pattern with validateRule's own error, against a literal expected value", () => {
-		// anti-drift note: the expected strings below are literal, not derived by calling
+		// anti-drift note: the expected string below is literal, not derived by calling
 		// validateRule (rulePatternError's own dependency) — deriving the expectation from the
 		// function under test's own dependency would make this pass vacuously against a
 		// rulePatternError that stopped calling validateRule altogether.

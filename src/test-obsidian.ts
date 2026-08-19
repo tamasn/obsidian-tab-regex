@@ -6,9 +6,12 @@
 // obsidian shim. `debounce` returns a no-op debouncer so saveSettings()'s trailing
 // scheduleWorkspaceSweep() call does not attempt a real workspace sweep — this stub's remit is the
 // save path, not the sweep. `Modal` guarantees only that `class RuleEditModal extends Modal` (a
-// module-scope class declaration in rule-modal.ts) evaluates without throwing at import time, so a
-// missing or non-constructible `Modal` here doesn't fail the whole suite on load. It does NOT
-// support construction or any instance method: `RuleEditModal`'s constructor touches
+// module-scope class declaration in rule-modal.ts) evaluates without throwing at import time: the
+// named import in rule-modal.ts:1 needs some `Modal` export to resolve, so a missing or
+// non-constructible `Modal` here would make that import unresolvable and fail every test file
+// that transitively imports rule-modal.ts — not merely skip a construction path. `new Modal()`
+// itself succeeds fine against this stub: it's `RuleEditModal` that does NOT
+// support construction or any instance method: its constructor touches
 // `this.modalEl`/`this.contentEl`, which a bare base class has no reason to provide, so
 // `new RuleEditModal(...)` would throw against this stub, and there is no `open`/`close`/
 // `setCloseCallback` here for it to call even if it didn't. That's fine today — no test constructs
