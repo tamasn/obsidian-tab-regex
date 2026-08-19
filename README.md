@@ -63,10 +63,9 @@ Explorer's View options; on Linux, most file managers reveal it via `Ctrl+H`.
 
 These steps are from the Obsidian UI and may differ by version.
 
-1. Open the vault in Obsidian. If it was already open, reload it — the reload icon on the Community
-   plugins tab, or the **Reload app without saving** command — so Obsidian picks up the new folder.
-2. Go to **Settings → Community plugins**. (Reloading in step 1 closes any Settings window that was
-   open, so you're navigating there fresh.) If you have never enabled community plugins in this
+1. Open the vault in Obsidian. If it was already open, run the **Reload app without saving** command
+   from the command palette, so Obsidian picks up the new folder.
+2. Go to **Settings → Community plugins**. If you have never enabled community plugins in this
    vault, turn off **Restricted mode** first — the rest of this tab, including the installed-plugins
    list, is unavailable while Restricted mode is on.
 3. Find **Tab Title Rules** in the installed-plugins list and turn it on.
