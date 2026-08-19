@@ -23,13 +23,11 @@ and copy the build output into your vault. That is the procedure below.
 
 Building the plugin requires a desktop machine (macOS, Windows, or Linux) with Node.js and pnpm; there
 is no mobile build path. The plugin itself is not desktop-only, though — `manifest.json` declares
-`isDesktopOnly: false` — so once it's installed on desktop, a vault whose sync method also carries
-`.obsidian/plugins/` to mobile brings the plugin with it. Whole-directory sync tools (iCloud,
-Dropbox, Syncthing) do this by default on Android, where Obsidian can open a vault stored in any of
-them. On iOS, Obsidian can only open a vault in iCloud Drive or on-device storage, so only the
-iCloud route works there — Dropbox and Syncthing have no way to host the vault on iOS. Obsidian
-Sync does not carry plugins either way — it gates syncing installed community plugins behind its
-own per-vault toggle, so check that setting if you're using it.
+`isDesktopOnly: false` — so it runs on mobile once it's there. Getting it onto a mobile device means
+the vault's `.obsidian/plugins/` folder has to reach that device, which depends entirely on how that
+vault is synced: some sync methods carry the config folder and some don't, so check what yours
+actually does. Obsidian Sync in particular gates syncing installed community plugins behind its own
+per-vault setting, so check that if you're using it.
 
 ### 1. Build the plugin
 
@@ -46,8 +44,8 @@ alone does not give you a runnable plugin.
 
 ### 2. Copy it into your vault
 
-An installed Obsidian plugin is a folder under `<your-vault>/.obsidian/plugins/` — `.obsidian`,
-unless this vault overrides its config folder in Settings → About — named after the plugin's `id`.
+An installed Obsidian plugin is a folder under `<your-vault>/.obsidian/plugins/`, named after the
+plugin's `id` (`.obsidian` unless this vault overrides its config folder in Settings → About).
 This plugin's `id` is `tab-title-rules`, so the folder must be named `tab-title-rules` — not
 `obsidian-tab-regex`.
 
