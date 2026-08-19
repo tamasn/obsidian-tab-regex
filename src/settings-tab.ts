@@ -5,7 +5,7 @@ import type {
 	SettingDefinitionRender,
 } from "obsidian";
 import { DEFAULT_SAMPLE_PATH, validateRule, type Rule } from "./rules";
-import { createRule, moveItem } from "./rule-ops";
+import { applyRuleEnabled, createRule, moveItem, replaceRuleById } from "./rule-ops";
 import { formatRuleSummary, ruleRowLabel } from "./rule-format";
 import { RuleEditModal } from "./rule-modal";
 import { buildPreview, type Preview } from "./preview";
@@ -38,11 +38,17 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	}
 
 	hide(): void {
-		// Close any open rule modal before the timer clears below, so its close
-		// callback's requestUpdate() either runs synchronously or leaves a timer
-		// the subsequent clear collects.
+		// Close any open rule modal before the timer clears below. Suppress its close
+		// callback first: Modal.close() dispatches the callback synchronously on desktop
+		// but, on phone, only after an async animateClose().then(...), so it can fire
+		// after this method has already returned and call requestUpdate() on a torn-down
+		// tab, re-entering buildPreviewDefinition().render against a detached div. A
+		// no-op callback (rather than null — the real Modal.setCloseCallback signature is
+		// non-nullable, `callback: () => any`, so passing null fails strict typecheck)
+		// takes the place of Obsidian's own null-callback idiom for a programmatic close.
 		const modal = this.activeRuleModal;
 		this.activeRuleModal = undefined;
+		modal?.setCloseCallback(() => {});
 		modal?.close();
 
 		// Flush once: saveSettings() and savePreferences() write the identical settings
@@ -143,7 +149,7 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 				setting.setName(ruleRowLabel(current));
 				setting.setClass("ttr-rule-row");
 
-				const valid = this.isRuleValid(current.id);
+				const valid = validateRule(current).ok;
 
 				setting.addDisplayValue((c) =>
 					c.setValue(valid ? null : "Invalid pattern").setStatus(valid ? null : "warning")
@@ -176,11 +182,9 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		const rule = this.findRule(id);
 		if (rule === undefined) return;
 		const modal = new RuleEditModal(this.app, rule, (next) => {
-			const rules = [...this.plugin.settings.rules];
-			const index = rules.findIndex((r) => r.id === id);
-			if (index === -1) return;
-			rules[index] = next;
-			this.commitRules(rules);
+			const updated = replaceRuleById(this.plugin.settings.rules, id, next);
+			if (updated === null) return;
+			this.commitRules(updated);
 			this.schedulePreviewRefresh();
 		});
 		modal.setCloseCallback(() => {
@@ -198,31 +202,25 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 	 * saveSettings re-merge adopting a sanitised rule, or a modal commit
 	 * landing). mergeSettings remains the authoritative gate; this is a
 	 * best-effort resync. The reject path calls requestUpdate() rather than
-	 * toggle.setValue(false), which would re-enter onChange.
+	 * toggle.setValue(false), which would re-enter onChange. The success path
+	 * does not call requestUpdate(): no row surface depends on `enabled` (the
+	 * label and desc key off name/pattern, the display value keys off
+	 * validity, and the toggle has already flipped itself), so rebuilding the
+	 * row would only drop focus off the checkbox the user just activated.
 	 */
 	private setRuleEnabled(id: string, next: boolean): void {
-		const rule = this.findRule(id);
-		if (rule === undefined) return;
-		if (next && !this.isRuleValid(id)) {
+		const result = applyRuleEnabled(this.plugin.settings.rules, id, next);
+		if (result.kind === "not-found") return;
+		if (result.kind === "rejected") {
 			this.requestUpdate();
 			return;
 		}
-		const rules = [...this.plugin.settings.rules];
-		const index = rules.findIndex((r) => r.id === id);
-		if (index === -1) return;
-		rules[index] = { ...rule, enabled: next };
-		this.commitRules(rules);
+		this.commitRules(result.rules);
 		this.schedulePreviewRefresh();
-		this.requestUpdate();
 	}
 
 	private findRule(id: string): Rule | undefined {
 		return this.plugin.settings.rules.find((rule) => rule.id === id);
-	}
-
-	private isRuleValid(id: string): boolean {
-		const rule = this.findRule(id);
-		return rule !== undefined && validateRule(rule).ok;
 	}
 
 	/**
@@ -333,7 +331,7 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 					}:${rule.enabled ? 1 : 0}`
 			)
 			.join("|");
-		return `${sample} ${rulesSignature}`;
+		return `${sample}\0${rulesSignature}`;
 	}
 
 	private getPreview(): Preview {
@@ -377,7 +375,7 @@ export class TabTitleRulesSettingTab extends PluginSettingTab {
 		const stepsEl = el.createDiv({ cls: "ttr-preview-steps" });
 		for (const row of preview.rows) {
 			const rule = this.plugin.settings.rules[row.index];
-			const label = rule?.name || rule?.pattern || `Rule ${row.index + 1}`;
+			const label = rule !== undefined ? ruleRowLabel(rule) : `Rule ${row.index + 1}`;
 			const stepEl = stepsEl.createDiv({
 				cls: `ttr-preview-step ttr-preview-step-${row.outcome}`,
 			});

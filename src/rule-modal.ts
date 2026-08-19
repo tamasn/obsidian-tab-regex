@@ -13,7 +13,8 @@ import { ruleRowLabel, rulePatternError } from "./rule-format";
  * pattern reach the debounced save and silently disable an enabled rule.
  * Save is not blocked on validity for the same reason: a work-in-progress
  * pattern must stay storable. mergeSettings on the save path is the
- * authoritative gate (architecture/constitution.md).
+ * authoritative gate (architecture/constitution.md, "Every persistence entry
+ * point funnels through mergeSettings").
  */
 export class RuleEditModal extends Modal {
 	private draft: Rule;
@@ -46,8 +47,8 @@ export class RuleEditModal extends Modal {
 		// on keystroke) and once more below (on mount), never during the chain's own
 		// synchronous construction, so it never observes patternSetting before assignment.
 		let patternSetting!: Setting;
-		const reportPatternError = (value: string) => {
-			patternSetting.setErrorMessage(rulePatternError(this.draft, value));
+		const reportPatternError = () => {
+			patternSetting.setErrorMessage(rulePatternError(this.draft));
 		};
 		patternSetting = new Setting(contentEl)
 			.setName("Pattern")
@@ -57,10 +58,10 @@ export class RuleEditModal extends Modal {
 				text.setValue(this.draft.pattern);
 				text.onChange((value) => {
 					this.draft = { ...this.draft, pattern: value };
-					reportPatternError(value);
+					reportPatternError();
 				});
 			});
-		reportPatternError(this.draft.pattern);
+		reportPatternError();
 
 		new Setting(contentEl)
 			.setName("Replacement")

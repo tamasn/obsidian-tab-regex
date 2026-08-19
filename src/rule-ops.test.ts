@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createRule, moveItem } from "./rule-ops";
+import { applyRuleEnabled, createRule, moveItem, replaceRuleById } from "./rule-ops";
 import { validateRule } from "./rules";
+import { makeRule } from "./test-fixtures";
 
 describe("moveItem", () => {
 	const list = ["A", "B", "C", "D"];
@@ -67,5 +68,91 @@ describe("createRule", () => {
 	it("cannot be enabled until given a real pattern — validateRule rejects the fresh rule", () => {
 		const result = validateRule(createRule());
 		expect(result.ok).toBe(false);
+	});
+});
+
+describe("applyRuleEnabled", () => {
+	// architecture/constitution.md, "validateRule is the only pattern-acceptability gate":
+	// this is settings-tab.ts's re-implementation of the enable-integrity gate the deleted
+	// setControlValue used to host — never enable a rule whose pattern does not validate.
+	// Disabling is always allowed, since an invalid rule must stay reachable to disable
+	// (gotcha: architecture/gotchas/2026-08-18-OTR-0006-savepreferences-bypasses-the-mergesettings-integrity-gate.md
+	// records that this.settings can legitimately hold an enabled non-compiling rule mid-edit).
+	it("gates enabling on validity, always allows disabling, and is a no-op for a missing id", () => {
+		const validRule = makeRule({ pattern: "ok", enabled: false });
+		const invalidRule = makeRule({ pattern: "(", enabled: true });
+
+		const cases = [
+			{
+				label: "enabling an invalid rule is rejected without mutating",
+				rules: [invalidRule],
+				id: invalidRule.id,
+				next: true,
+				expectedKind: "rejected" as const,
+			},
+			{
+				label: "disabling an invalid rule is allowed",
+				rules: [invalidRule],
+				id: invalidRule.id,
+				next: false,
+				expectedKind: "applied" as const,
+			},
+			{
+				label: "enabling a valid rule works",
+				rules: [validRule],
+				id: validRule.id,
+				next: true,
+				expectedKind: "applied" as const,
+			},
+			{
+				label: "an id absent from the array is not-found, without mutating",
+				rules: [validRule],
+				id: "missing-id",
+				next: true,
+				expectedKind: "not-found" as const,
+			},
+		];
+
+		for (const { label, rules, id, next, expectedKind } of cases) {
+			const before = [...rules];
+			const result = applyRuleEnabled(rules, id, next);
+			expect(result.kind, label).toBe(expectedKind);
+			if (result.kind === "applied") {
+				const updated = result.rules.find((rule) => rule.id === id);
+				expect(updated?.enabled, label).toBe(next);
+			} else {
+				expect(rules, label).toEqual(before);
+			}
+		}
+	});
+});
+
+describe("replaceRuleById", () => {
+	it("replaces the rule at the matching id's index, leaving the rest of the array untouched", () => {
+		const a = makeRule({ pattern: "a" });
+		const b = makeRule({ pattern: "b" });
+		const c = makeRule({ pattern: "c" });
+		const replacement = { ...b, pattern: "b2" };
+
+		const result = replaceRuleById([a, b, c], b.id, replacement);
+
+		expect(result).toEqual([a, replacement, c]);
+	});
+
+	it("does not mutate the input array", () => {
+		const a = makeRule({ pattern: "a" });
+		const original = [a];
+
+		replaceRuleById(original, a.id, { ...a, pattern: "a2" });
+
+		expect(original[0].pattern).toBe("a");
+	});
+
+	it("is a no-op — returns null — when the id is not present", () => {
+		const a = makeRule({ pattern: "a" });
+
+		const result = replaceRuleById([a], "missing-id", makeRule({ pattern: "z" }));
+
+		expect(result).toBeNull();
 	});
 });

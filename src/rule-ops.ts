@@ -1,4 +1,5 @@
 import type { Rule } from "./rules";
+import { validateRule } from "./rules";
 
 /**
  * Pure, non-mutating move: `to` is the moved item's index in the final array
@@ -38,4 +39,46 @@ export function createRule(): Rule {
 		ignoreCase: false,
 		enabled: false,
 	};
+}
+
+export type ApplyRuleEnabledResult =
+	| { kind: "applied"; rules: Rule[] }
+	| { kind: "rejected" }
+	| { kind: "not-found" };
+
+/**
+ * Enable-integrity gate: never enable a rule whose pattern does not validate
+ * (mergeSettings remains the authoritative gate on the save path; this is the
+ * settings-tab's own best-effort resync — see settings-tab.ts's setRuleEnabled
+ * doc comment). Disabling is always allowed regardless of validity. Finds and
+ * validates the rule once, rather than the id being re-resolved by separate
+ * find/validate/splice passes.
+ */
+export function applyRuleEnabled(
+	rules: readonly Rule[],
+	id: string,
+	next: boolean
+): ApplyRuleEnabledResult {
+	const index = rules.findIndex((rule) => rule.id === id);
+	if (index === -1) return { kind: "not-found" };
+	const rule = rules[index];
+	if (next && !validateRule(rule).ok) return { kind: "rejected" };
+	const copy = [...rules];
+	copy[index] = { ...rule, enabled: next };
+	return { kind: "applied", rules: copy };
+}
+
+/**
+ * Replaces the rule with the given id (the modal-commit splice). Returns
+ * `null` — rather than a copy equal to the input — when the id is not found,
+ * so a caller that persists/refreshes only on an actual change can tell a
+ * genuine replacement apart from a no-op (e.g. the rule was deleted while its
+ * edit modal was still open).
+ */
+export function replaceRuleById(rules: readonly Rule[], id: string, next: Rule): Rule[] | null {
+	const index = rules.findIndex((rule) => rule.id === id);
+	if (index === -1) return null;
+	const copy = [...rules];
+	copy[index] = next;
+	return copy;
 }
