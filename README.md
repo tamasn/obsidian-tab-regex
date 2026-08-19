@@ -4,14 +4,14 @@ An Obsidian plugin for rule based customization of tab titles.
 
 Tab Title Rules rewrites the label Obsidian shows on a tab by running the note's vault path, with its
 extension stripped, through an ordered chain of regex rules that you configure. If no rule matches,
-or the chain's result is empty, the tab falls back to the plain filename. The underlying file is
+or the chain's result is empty, the tab falls back to that same extension-stripped filename. The underlying file is
 never renamed — the plugin only changes what the tab, the in-pane view header, and the window title
 display.
 
 ## Requirements
 
-- Obsidian **1.13.1** or newer (the version this plugin's typings are pinned to, and the version its
-  settings screen's declarative settings API is confirmed present in).
+- Obsidian **1.13.1** or newer (the version this plugin's typings are locked to in `pnpm-lock.yaml`,
+  and the version its settings screen's declarative settings API is confirmed present in).
 - To build the plugin: [Node.js](https://nodejs.org) (a recent LTS is fine; nothing older has been
   tested) and [pnpm](https://pnpm.io).
 
@@ -23,8 +23,10 @@ and copy the build output into your vault. That is the procedure below.
 
 Building the plugin requires a desktop machine (macOS, Windows, or Linux) with Node.js and pnpm; there
 is no mobile build path. The plugin itself is not desktop-only, though — `manifest.json` declares
-`isDesktopOnly: false`, and a vault that syncs to a mobile device carries the plugin folder with it
-once it's installed on desktop.
+`isDesktopOnly: false` — so once it's installed on desktop, a vault whose sync method also carries
+`.obsidian/plugins/` to mobile brings the plugin with it. Whole-directory sync tools (iCloud,
+Dropbox, Syncthing) do this by default; Obsidian Sync does not — it gates syncing installed
+community plugins behind its own per-vault toggle, so check that setting if you're using it.
 
 ### 1. Build the plugin
 
@@ -59,14 +61,14 @@ Explorer's View options; on Linux, most file managers reveal it via `Ctrl+H`.
 
 ### 3. Enable it in Obsidian
 
-The steps below have not been run against a live vault as part of writing this README, so treat the
-UI labels as best-effort rather than verified.
+These steps are from the Obsidian UI and may differ by version.
 
-1. Go to **Settings → Community plugins**. If you have never enabled community plugins in this
-   vault, turn off **Restricted mode** first — the rest of this tab, including the reload control and
-   the installed-plugins list, is unavailable while Restricted mode is on.
-2. Open the vault in Obsidian. If it was already open, reload it — the reload icon on the Community
+1. Open the vault in Obsidian. If it was already open, reload it — the reload icon on the Community
    plugins tab, or the **Reload app without saving** command — so Obsidian picks up the new folder.
+2. Go to **Settings → Community plugins**. (Reloading in step 1 closes any Settings window that was
+   open, so you're navigating there fresh.) If you have never enabled community plugins in this
+   vault, turn off **Restricted mode** first — the rest of this tab, including the installed-plugins
+   list, is unavailable while Restricted mode is on.
 3. Find **Tab Title Rules** in the installed-plugins list and turn it on.
 4. Its settings screen should then appear under **Settings → Community plugins → Tab Title Rules**,
    where you can add rules and preview them against a sample path.
@@ -76,7 +78,7 @@ UI labels as best-effort rather than verified.
 Pull the latest source, rebuild, and copy the three files over the old ones:
 
 ```sh
-cd obsidian-tab-regex
+cd /path/to/obsidian-tab-regex
 git pull
 pnpm install
 pnpm run build
