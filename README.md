@@ -13,7 +13,7 @@ display.
 - Obsidian **1.13.1** or newer (the version this plugin's typings are locked to in `pnpm-lock.yaml`,
   and the version its settings screen's declarative settings API is confirmed present in).
 - To build the plugin: [Node.js](https://nodejs.org) (a recent LTS is fine; nothing older has been
-  tested) and [pnpm](https://pnpm.io).
+  tested), [pnpm](https://pnpm.io), and git.
 
 ## Installation
 
@@ -25,8 +25,11 @@ Building the plugin requires a desktop machine (macOS, Windows, or Linux) with N
 is no mobile build path. The plugin itself is not desktop-only, though — `manifest.json` declares
 `isDesktopOnly: false` — so once it's installed on desktop, a vault whose sync method also carries
 `.obsidian/plugins/` to mobile brings the plugin with it. Whole-directory sync tools (iCloud,
-Dropbox, Syncthing) do this by default; Obsidian Sync does not — it gates syncing installed
-community plugins behind its own per-vault toggle, so check that setting if you're using it.
+Dropbox, Syncthing) do this by default on Android, where Obsidian can open a vault stored in any of
+them. On iOS, Obsidian can only open a vault in iCloud Drive or on-device storage, so only the
+iCloud route works there — Dropbox and Syncthing have no way to host the vault on iOS. Obsidian
+Sync does not carry plugins either way — it gates syncing installed community plugins behind its
+own per-vault toggle, so check that setting if you're using it.
 
 ### 1. Build the plugin
 
@@ -43,9 +46,10 @@ alone does not give you a runnable plugin.
 
 ### 2. Copy it into your vault
 
-An installed Obsidian plugin is a folder under `<your-vault>/.obsidian/plugins/`, named after the
-plugin's `id`. This plugin's `id` is `tab-title-rules`, so the folder must be named
-`tab-title-rules` — not `obsidian-tab-regex`.
+An installed Obsidian plugin is a folder under `<your-vault>/.obsidian/plugins/` — `.obsidian`,
+unless this vault overrides its config folder in Settings → About — named after the plugin's `id`.
+This plugin's `id` is `tab-title-rules`, so the folder must be named `tab-title-rules` — not
+`obsidian-tab-regex`.
 
 Three files need to be in it: `main.js`, `manifest.json`, and `styles.css`.
 
